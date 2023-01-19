@@ -1,0 +1,5 @@
+__pycache__
+*.bak
+_build
+poetry.lock
+*.env

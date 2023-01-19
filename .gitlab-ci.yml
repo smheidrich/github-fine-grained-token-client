@@ -1,0 +1,77 @@
+image: python:latest
+
+variables:
+  PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
+
+cache:
+  paths:
+    - .cache/pip
+    - venv/
+
+before_script:
+  - python --version
+  - pip install virtualenv
+  - virtualenv venv
+  - source venv/bin/activate
+
+test:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+          || $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+  script:
+    - pip install poetry
+    - poetry install
+    - python -m flake8
+    - python -m isort --check .
+    - python -m black --check .
+    - python -m mypy .
+    - pytest
+
+build package:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+          || $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+          || $CI_COMMIT_TAG =~ /^v\d+.\d+.\d+-?.*$/
+  script:
+    - pip install build twine
+    - python -m build --sdist
+    - twine check dist/*
+  artifacts:
+    paths:
+      - dist/*
+
+publish package:
+  variables:
+    TWINE_USERNAME: __token__
+    TWINE_PASSWORD: $PYPI_TOKEN
+  rules:
+    - if: $CI_COMMIT_TAG =~ /^v\d+.\d+.\d+-?.*$/
+  needs:
+    - job: build package
+  script:
+    - twine check dist/*
+    - twine upload dist/*
+
+build docs:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+          || $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+          || $CI_COMMIT_TAG =~ /^v\d+.\d+.\d+-?.*$/
+  script:
+    - pip install sphinx sphinx-rtd-theme
+    - ( cd doc && make html )
+    - mv doc/_build/html built-docs
+  artifacts:
+    paths:
+      - built-docs
+
+pages:
+  rules:
+    - if: $CI_COMMIT_TAG =~ /^v\d+.\d+.\d+-?.*$/
+  needs:
+    - job: build docs
+  script:
+    - mv built-docs public
+  artifacts:
+    paths:
+      - public
