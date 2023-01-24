@@ -1,11 +1,14 @@
-from .async_client import AsyncGithubTokenClientSession, async_github_token_client
+from .async_client import (
+    AsyncGithubTokenClientSession,
+    async_github_token_client,
+)
 from .common import (
-    AllProjects,
+    AllRepositories,
+    FineGrainedTokenListEntry,
+    FineGrainedTokenScope,
     LoginError,
     PasswordError,
-    SingleProject,
-    TokenListEntry,
-    TokenScope,
+    SelectRepositories,
     TooManyAttemptsError,
     UsernameError,
 )
@@ -19,8 +22,8 @@ __all__ = [
     "UsernameError",
     "PasswordError",
     "TooManyAttemptsError",
-    "TokenScope",
-    "AllProjects",
-    "SingleProject",
-    "TokenListEntry",
+    "FineGrainedTokenScope",
+    "AllRepositories",
+    "SelectRepositories",
+    "FineGrainedTokenListEntry",
 ]

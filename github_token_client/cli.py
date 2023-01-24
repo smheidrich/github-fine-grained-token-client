@@ -4,7 +4,7 @@ from pathlib import Path
 
 import typer
 
-from github_token_client.common import AllProjects, SingleProject
+from github_token_client.common import AllRepositories, SelectRepositories
 
 from .app import App
 
@@ -87,7 +87,9 @@ def create(
     """
     Create a new token on GitHub
     """
-    scope = AllProjects() if project is None else SingleProject(project)
+    scope = (
+        AllRepositories() if project is None else SelectRepositories([project])
+    )
     app = _app_from_typer_state(ctx.obj)
     app.create_token(token_name, scope)
 

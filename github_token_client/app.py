@@ -1,13 +1,17 @@
 import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from datetime import timedelta
 from itertools import count
 from pathlib import Path
 from pprint import pprint
 from traceback import print_exc
 
-from .async_client import AsyncGithubTokenClientSession, async_github_token_client
-from .common import PasswordError, TokenScope, UsernameError
+from .async_client import (
+    AsyncGithubTokenClientSession,
+    async_github_token_client,
+)
+from .common import FineGrainedTokenScope, LoginError
 from .credentials import (
     get_credentials_from_keyring_and_prompt,
     prompt_for_credentials,
@@ -33,7 +37,7 @@ class App:
         self.github_base_url = github_base_url
 
     @asynccontextmanager
-    async def _logged_in_session(
+    async def _logged_in_error_handling_session(
         self,
     ) -> AsyncIterator[AsyncGithubTokenClientSession]:
         # don't do anything interactive (e.g. ask about saving to keyring or
@@ -48,7 +52,7 @@ class App:
         )
         async with async_github_token_client(
             credentials, self.headless, self.persist_to, self.github_base_url
-        ) as session:
+        ) as session, self._handle_errors(session):
             for attempt in count():
                 try:
                     did_login = await session.login()
@@ -64,7 +68,7 @@ class App:
                         else:
                             print("not saving")
                     break
-                except (UsernameError, PasswordError) as e:
+                except LoginError as e:
                     print(f"Login failed: {e}")
                     if attempt >= max_login_attempts or not interactive:
                         print("Giving up.")
@@ -95,19 +99,14 @@ class App:
                 await session.wait_until_closed()
             exit(1)
 
-    @asynccontextmanager
-    async def _logged_in_error_handling_session(
-        self,
-    ) -> AsyncIterator[AsyncGithubTokenClientSession]:
-        async with self._logged_in_session() as session, self._handle_errors(
-            session
-        ):
-            yield session
-
-    def create_token(self, token_name: str, scope: TokenScope) -> None:
+    def create_token(
+        self, token_name: str, scope: FineGrainedTokenScope
+    ) -> None:
         async def _run():
             async with self._logged_in_error_handling_session() as session:
-                token = await session.create_token(token_name, scope)
+                token = await session.create_fine_grained_token(
+                    token_name, timedelta(days=364), "", None, scope
+                )
             print("Created token:")
             print(token)
 
@@ -116,7 +115,11 @@ class App:
     def list_tokens(self) -> None:
         async def _run():
             async with self._logged_in_error_handling_session() as session:
-                tokens = await session.get_token_list()
+                classic_tokens = await session.get_classic_token_list()
+                fine_grained_tokens = (
+                    await session.get_fine_grained_token_list()
+                )
+                tokens = classic_tokens + fine_grained_tokens
             pprint(tokens)
 
         asyncio.run(_run())

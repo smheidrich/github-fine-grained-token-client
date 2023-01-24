@@ -4,6 +4,7 @@ Data structures common to both sync and async client.
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from typing import Sequence
 
 user_data_dir = str(Path("~/.autogithubtok/persist-chromium").expanduser())
 max_login_attempts = 3
@@ -38,24 +39,37 @@ class TokenNameError(Exception):
 
 
 @dataclass
-class TokenScope:
+class FineGrainedTokenScope:
     pass
 
 
 @dataclass
-class AllProjects(TokenScope):
+class PublicRepositories(FineGrainedTokenScope):
     pass
 
 
 @dataclass
-class SingleProject(TokenScope):
-    name: str
-    "Name of the project for which this token should be valid"
+class AllRepositories(FineGrainedTokenScope):
+    pass
 
 
 @dataclass
-class TokenListEntry:
+class SelectRepositories(FineGrainedTokenScope):
+    names: Sequence[str]
+    "Fully-qualified project names (i.e. ``user/project``)"
+
+
+@dataclass
+class FineGrainedTokenListEntry:
     name: str
-    scope: TokenScope
-    created: datetime
-    last_used: datetime | None
+    expires: datetime
+    # last_used: datetime | None  # TODO
+    last_used_str: str
+
+
+@dataclass
+class ClassicTokenListEntry:
+    name: str
+    expires: datetime | None
+    # last_used: datetime | None  # TODO
+    last_used_str: str

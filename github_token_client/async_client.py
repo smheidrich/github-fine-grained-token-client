@@ -2,26 +2,28 @@
 `async`/`await`-based GitHub token client
 """
 from asyncio import Lock
+import asyncio
 from contextlib import asynccontextmanager
+from datetime import date, timedelta
 from functools import wraps
 from logging import Logger, getLogger
 from pathlib import Path
 from typing import AsyncIterator, Sequence
 
-from dateutil.parser import isoparse
+import dateparser
 from playwright.async_api import async_playwright
 
 from .common import (
-    AllProjects,
-    PasswordError,
-    SingleProject,
-    TokenListEntry,
+    AllRepositories,
+    ClassicTokenListEntry,
+    FineGrainedTokenListEntry,
+    FineGrainedTokenScope,
+    LoginError,
+    PublicRepositories,
+    SelectRepositories,
     TokenNameError,
-    TokenScope,
-    TooManyAttemptsError,
     UnexpectedContentError,
     UnexpectedPageError,
-    UsernameError,
 )
 from .credentials import GithubCredentials
 from .utils.playwright import launch_ephemeral_chromium_context
@@ -149,13 +151,11 @@ class AsyncGithubTokenClientSession:
                     f"credential username {self.credentials.username!r}, "
                     "which can't be handled yet"
                 )
-        if not self.page.url.startswith(
-            self.base_url.rstrip("/") + "/account/login/"
-        ):
+        if not self.page.url.startswith(self.base_url.rstrip("/") + "/login"):
             self.logger.info("no login required")
             return False
         username_input = one_or_none(
-            await self.page.locator("#username").all()
+            await self.page.locator("#login_field").all()
         )
         if not username_input:
             raise UnexpectedContentError(
@@ -175,43 +175,31 @@ class AsyncGithubTokenClientSession:
         ), self.page.expect_navigation():
             self.logger.info("logging in...")
             await password_input.press("Enter")
-        if self.page.url.startswith(
-            self.base_url.rstrip("/") + "/account/login/"
-        ):
-            username_errors_or_none = one_or_none(
-                await self.page.locator("#username-errors ul li").all()
+        if self.page.url.startswith(self.base_url.rstrip("/") + "/session"):
+            login_errors_or_none = one_or_none(
+                await self.page.locator("#js-flash-container").all()
             )
-            username_error = (
-                await username_errors_or_none.inner_text()
-                if username_errors_or_none is not None
+            login_error = (
+                await login_errors_or_none.inner_text()
+                if login_errors_or_none is not None
                 else None
             )
-            if username_error is not None:
-                raise UsernameError(username_error)
-            password_errors_or_none = one_or_none(
-                await self.page.locator("#password-errors ul li").all()
+            if login_error is not None:
+                raise LoginError(login_error)
+            raise UnexpectedContentError(
+                "ended up back on login page but not sure why"
             )
-            password_error = (
-                await password_errors_or_none.inner_text()
-                if password_errors_or_none is not None
-                else None
-            )
-            if password_error is not None:
-                if "too many unsuccessful login attempts" in password_error:
-                    raise TooManyAttemptsError(password_error)
-                else:
-                    raise PasswordError(password_error)
         return True
 
     async def _confirm_password(self):
         confirm_heading = one_or_none(
-            await self.page.get_by_text("Confirm password to continue").all()
+            await self.page.get_by_text("Confirm access").all()
         )
         if not confirm_heading:
             self.logger.info("no password confirmation required")
             return
         password_input = one_or_none(
-            await self.page.locator("#password").all()
+            await self.page.locator("#sudo_password").all()
         )
         if not password_input:
             raise UnexpectedContentError("no password field found")
@@ -233,27 +221,35 @@ class AsyncGithubTokenClientSession:
         await self.page.wait_for_event("close", timeout=0)
 
     @_with_lock
-    async def create_token(self, name: str, scope: TokenScope) -> str:
+    async def create_fine_grained_token(
+        self,
+        name: str,
+        expires: date | timedelta,
+        description: str = "",
+        resource_owner: str | None = None,
+        scope: FineGrainedTokenScope = PublicRepositories(),
+    ) -> str:
         """
-        Create a new token on GitHub.
+        Create a new fine-grained token on GitHub.
 
         Args:
             name: Name of the token to create.
+            expires: Expiration date of the token to create. GitHub currently
+                only allows expiration dates up to 1 year in the future.
+            description: Description of the token to create.
+            resource_owner: Owner of the token to create. Defaults to whatever
+                GitHub selects by default (always logged-in user I guess).
             scope: The token's desired scope.
 
         Returns:
             The created token.
         """
-        # validate & extract from args
-        if isinstance(scope, AllProjects):
-            scope_selector_value = "scope:user"
-        elif isinstance(scope, SingleProject):
-            scope_selector_value = f"scope:project:{scope.name}"
-        else:
-            raise TypeError(f"invalid token scope: {scope}")
-        # /validate args
+        # normalize args
+        if isinstance(expires, timedelta):
+            expires_date = date.today() + expires
+        # /normalize args
         await self.page.goto(
-            self.base_url + "/manage/account/token/",
+            self.base_url + "/settings/personal-access-tokens/new",
             wait_until="domcontentloaded",
         )
         # login if necessary
@@ -261,39 +257,82 @@ class AsyncGithubTokenClientSession:
         # confirm password if necessary
         await self._confirm_password()
         # fill in token name field
-        name_input = one_or_none(await self.page.locator("#description").all())
+        name_input = one_or_none(
+            await self.page.get_by_label("Token name").all()
+        )
         if name_input is None:
             raise UnexpectedContentError("no token name field found on page")
         await name_input.fill(name)
-        # select token scope => project only
-        scope_selector = one_or_none(
-            await self.page.locator("#token_scope").all()
+        # set expiration date
+        # select custom date
+        (
+            expiration_select_input,
+            expiration_date_input,
+        ) = await self.page.get_by_label("Expiration").all()
+        await expiration_select_input.select_option(value="custom")
+        # set custom date
+        await expiration_date_input.wait_for(state="visible", timeout=5000)
+        await expiration_date_input.type(expires_date.strftime("%m%d%Y"))
+        # select token scope
+        if isinstance(scope, PublicRepositories):
+            scope_label = "Public Repositories (read-only)"
+        elif isinstance(scope, AllRepositories):
+            scope_label = "All repositories"
+        elif isinstance(scope, SelectRepositories):
+            scope_label = "Only select repositories"
+        else:
+            raise TypeError(f"invalid token scope: {scope}")
+        scope_radio_button = one_or_none(
+            await self.page.get_by_label(scope_label).all()
         )
-        if scope_selector is None:
-            raise UnexpectedContentError("no scope selector found on page")
-        await scope_selector.select_option(value=scope_selector_value)
-        async with self.page.expect_event(
-            "domcontentloaded"
-        ), self.page.expect_navigation():
-            self.logger.info(f"creating token {name!r}...")
-            await name_input.press("Enter")
-        name_errors_or_none = one_or_none(
-            await self.page.locator("#token-name-errors ul li").all()
-        )
-        name_error = (
-            await name_errors_or_none.inner_text()
-            if name_errors_or_none is not None
-            else None
-        )
-        if name_error is not None:
-            raise TokenNameError(name_error)
-        token_block = one_or_none(
-            await self.page.locator("#provisioned-key > code").all()
-        )
-        if not token_block:
-            raise UnexpectedContentError("no token block found on page")
-        token = await token_block.inner_text()
-        return token
+        if scope_radio_button is None:
+            raise UnexpectedContentError(
+                f"no scope radio button for label {scope_label!r} "
+                "found on page"
+            )
+        await scope_radio_button.click()
+        # with select repository scoped tokens, we have to select them from the
+        # dropdown menu that appears
+        if isinstance(scope, SelectRepositories):
+            select_repositories_dropdown_loc = self.page.locator(
+                "summary > span"
+            ).filter(has_text="Select repositories")
+            await select_repositories_dropdown_loc.wait_for(
+                state="visible", timeout=5000
+            )
+            select_repositories_dropdown = one_or_none(
+                await select_repositories_dropdown_loc.all()
+            )
+            if select_repositories_dropdown is None:
+                raise UnexpectedContentError(
+                    "no dropdown menu to select repositories from "
+                    "found on page"
+                )
+            await select_repositories_dropdown.click()
+            repo_search_input_loc = self.page.get_by_placeholder(
+                "Search for a repository"
+            )
+            await repo_search_input_loc.wait_for(state="visible", timeout=5000)
+            repo_search_input = one_or_none(await repo_search_input_loc.all())
+            if repo_search_input is None:
+                raise UnexpectedContentError(
+                    "no repository search input found on page"
+                )
+            for repo_name in scope.names:
+                await repo_search_input.type(repo_name)
+                repo_list = await self.page.locator(
+                    "#repository-menu-list > button"
+                ).all()
+                await asyncio.sleep(1000)  # TODO wait for list entries
+                if len(repo_list) > 1:
+                    raise NotImplementedError(
+                        "selecting one of multiple repos not yet implemented"
+                    )
+                await repo_search_input.press("ArrowDown")
+                await repo_search_input.press("Enter")
+        await asyncio.sleep(20)
+        # TODO
+        return "not yet implemented"
 
     @_with_lock
     async def login(self) -> bool:
@@ -314,22 +353,24 @@ class AsyncGithubTokenClientSession:
             done.
         """
         await self.page.goto(
-            self.base_url + "/account/login/",
+            self.base_url + "/login",
             wait_until="domcontentloaded",
         )
         # login if necessary
         return await self._handle_login()
 
     @_with_lock
-    async def get_token_list(self) -> Sequence[TokenListEntry]:
+    async def get_fine_grained_token_list(
+        self,
+    ) -> Sequence[FineGrainedTokenListEntry]:
         """
-        Get list of tokens for the logged-in account on GitHub.
+        Get list of fine-grained tokens for the logged-in account on GitHub.
 
         Returns:
             List of tokens.
         """
         await self.page.goto(
-            self.base_url + "settings/tokens?type=beta",
+            self.base_url + "/settings/tokens?type=beta",
             wait_until="domcontentloaded",
         )
         # login if necessary
@@ -337,33 +378,83 @@ class AsyncGithubTokenClientSession:
         # confirm password if necessary
         await self._confirm_password()
         # get list
-        token_rows = await self.page.locator(
-            "#api-tokens > table > tbody > tr"
+        token_locs = await self.page.locator(
+            ".listgroup > .access-token > .listgroup-item"
         ).all()
         token_list = []
-        for row in token_rows:
-            cols = await row.locator("th,td").all()
-            name = await cols[0].inner_text()
-            scope_str = await cols[1].inner_text()
-            scope = (
-                AllProjects()
-                if scope_str == "All projects"
-                else SingleProject(scope_str)
-            )
-            created = isoparse(
+        for token_loc in token_locs:
+            last_used_str = await one_or_none(
+                await token_loc.locator(".last-used").all()
+            ).inner_text()
+            name = (
                 await one_or_none(
-                    await cols[2].locator("time").all()
-                ).get_attribute("datetime")
-            )
-            last_used_time_elem = one_or_none(
-                await cols[3].locator("time").all()
-            )
-            last_used = (
-                isoparse(await last_used_time_elem.get_attribute("datetime"))
-                if last_used_time_elem is not None
-                else None
-            )
-            entry = TokenListEntry(name, scope, created, last_used)
+                    await token_loc.locator(".token-description").all()
+                ).inner_text()
+            ).strip()
+            # these are loaded with JS:
+            # TODO handle expired tokens (unsure yet how that looks)
+            expires_loc = token_loc.locator(".text-italic")
+            await expires_loc.wait_for(state="visible", timeout=5000)
+            expires_str = await one_or_none(
+                await expires_loc.all()
+            ).inner_text()
+            if expires_str.startswith("on "):
+                expires_str = expires_str[2:]
+            expires = dateparser.parse(expires_str)
+            if expires is None:
+                raise ValueError(
+                    "could not parse expiration date {expires_str!r}"
+                )
+            entry = FineGrainedTokenListEntry(name, expires, last_used_str)
+            token_list.append(entry)
+        return token_list
+
+    @_with_lock
+    async def get_classic_token_list(
+        self,
+    ) -> Sequence[ClassicTokenListEntry]:
+        """
+        Get list of classic tokens for the logged-in account on GitHub.
+
+        Returns:
+            List of tokens.
+        """
+        await self.page.goto(
+            self.base_url + "/settings/tokens",
+            wait_until="domcontentloaded",
+        )
+        # login if necessary
+        await self._handle_login()
+        # confirm password if necessary
+        await self._confirm_password()
+        # get list
+        token_locs = await self.page.locator(
+            ".listgroup > .access-token > .listgroup-item"
+        ).all()
+        token_list = []
+        for token_loc in token_locs:
+            last_used_str = await one_or_none(
+                await token_loc.locator(".last-used").all()
+            ).inner_text()
+            name = (
+                await one_or_none(
+                    await token_loc.locator(".token-description").all()
+                ).inner_text()
+            ).strip()
+            # in contrast to the fine-grained ones, these are static HTML so we
+            # don't have to wait for them to be loaded:
+            expires_loc = token_loc.locator("xpath=*[4]")
+            expires_str = await one_or_none(
+                await expires_loc.all()
+            ).inner_text()
+            expires_str = expires_str.strip()
+            if any(
+                expires_str.lower().startswith(x)
+                for x in ("expires on ", "expired on ")
+            ):
+                expires_str = expires_str[len("expire* on ") :]
+            expires = dateparser.parse(expires_str)
+            entry = ClassicTokenListEntry(name, expires, last_used_str)
             token_list.append(entry)
         return token_list
 
