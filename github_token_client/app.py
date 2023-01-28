@@ -5,7 +5,11 @@ from datetime import timedelta
 from itertools import count
 from pathlib import Path
 from pprint import pprint
-from traceback import print_exc
+
+from github_token_client.session_persistence import (
+    load_session_state,
+    save_session_state,
+)
 
 from .async_client import (
     AsyncGithubTokenClientSession,
@@ -24,13 +28,11 @@ max_login_attempts = 3
 class App:
     def __init__(
         self,
-        headless: bool = True,
         persist_to: Path | None = None,
         username: str | None = None,
         password: str | None = None,
         github_base_url: str = "https://github.com",
     ):
-        self.headless = headless
         self.persist_to = persist_to
         self.username = username
         self.password = password
@@ -50,12 +52,22 @@ class App:
         ) = get_credentials_from_keyring_and_prompt(
             self.github_base_url, self.username, self.password
         )
+        session_state = (
+            load_session_state(self.persist_to / "session-state.json")
+            if self.persist_to is not None
+            else None
+        )
         async with async_github_token_client(
-            credentials, self.headless, self.persist_to, self.github_base_url
+            credentials, session_state, self.github_base_url
         ) as session, self._handle_errors(session):
             for attempt in count():
                 try:
                     did_login = await session.login()
+                    if self.persist_to is not None:
+                        save_session_state(
+                            self.persist_to / "session-state.json",
+                            session.state,
+                        )
                     if did_login and credentials_are_new and interactive:
                         save = input(
                             "success! save credentials to keyring (Y/n)? "
@@ -81,23 +93,8 @@ class App:
     @staticmethod
     @asynccontextmanager
     async def _handle_errors(session: AsyncGithubTokenClientSession):
-        try:
-            yield
-        except Exception:
-            print_exc()
-            if session.headless:
-                print(
-                    "If you want to see what exactly went wrong by looking at "
-                    "the browser window, rerun in non-headless mode"
-                )
-            else:
-                print_exc()
-                print(
-                    "check browser window for what exactly went wrong "
-                    "and close it once done"
-                )
-                await session.wait_until_closed()
-            exit(1)
+        # TODO
+        yield
 
     def create_token(
         self, token_name: str, scope: FineGrainedTokenScope

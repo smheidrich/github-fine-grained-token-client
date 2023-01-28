@@ -1,17 +1,18 @@
 """
 `async`/`await`-based GitHub token client
 """
-from asyncio import Lock
 import asyncio
+from asyncio import Lock
 from contextlib import asynccontextmanager
+from dataclasses import dataclass, field
 from datetime import date, timedelta
 from functools import wraps
 from logging import Logger, getLogger
-from pathlib import Path
-from typing import AsyncIterator, Sequence
+from typing import AsyncIterator, Mapping, Sequence
 
 import dateparser
-from playwright.async_api import async_playwright
+import httpx
+from bs4 import BeautifulSoup
 
 from .common import (
     AllRepositories,
@@ -21,29 +22,30 @@ from .common import (
     LoginError,
     PublicRepositories,
     SelectRepositories,
-    TokenNameError,
     UnexpectedContentError,
-    UnexpectedPageError,
 )
 from .credentials import GithubCredentials
-from .utils.playwright import launch_ephemeral_chromium_context
 from .utils.sequences import one_or_none
 
 default_logger = getLogger(__name__)
 
 
-def _expect_page(page, expected_url: str):
-    if page.url != expected_url:
-        raise UnexpectedPageError(
-            f"ended up on unexpected page {page.url} (expected {expected_url})"
-        )
+@dataclass
+class GithubTokenClientSessionState:
+    """
+    Session state that can be used to preserve logged-in states.
+
+    Re-initializing client session with this and not just credentials can
+    reduce the number of unnecessary logins that need to be performed.
+    """
+
+    cookies: Mapping[str, str] = field(default_factory=dict)
 
 
 @asynccontextmanager
 async def async_github_token_client(
     credentials: GithubCredentials,
-    headless: bool = False,
-    persist_to: Path | str | None = None,
+    state: GithubTokenClientSessionState | None = None,
     base_url: str = "https://github.com",
     logger: Logger = default_logger,
 ) -> AsyncIterator["AsyncGithubTokenClientSession"]:
@@ -54,29 +56,18 @@ async def async_github_token_client(
 
     Args:
         credentials: Credentials to log into GitHub with.
-        headless: If true, the browser window will not be shown.
-        persist_to: Directory in which to persist the browser state. ``None``
-            means no persistence.
+        state: Session state (avoids unnecessary logins).
         base_url: GitHub base URL.
         logger: Logger to log messages to.
 
     Returns:
       A context manager for the async session.
     """
-    async with async_playwright() as p:
-        if persist_to is None:
-            context = await launch_ephemeral_chromium_context(
-                p, headless=headless
-            )
-        else:
-            context = await p.chromium.launch_persistent_context(
-                Path(persist_to), headless=headless
-            )
-        pages = context.pages
-        assert len(pages) == 1
-        page = pages[0]
+    async with httpx.AsyncClient(
+        **({"cookies": state.cookies} if state is not None else {})
+    ) as http_client:
         yield AsyncGithubTokenClientSession(
-            context, page, credentials, headless, base_url, logger
+            http_client, credentials, base_url, logger
         )
 
 
@@ -96,42 +87,31 @@ class AsyncGithubTokenClientSession:
     Should not be instantiated directly but only through
     :func:`async_github_token_client`.
 
-    A session's lifecycle corresponds to that of the browser instance which is
-    used to perform operations on the GitHub web interface. When multiple
-    operations have to be performed in sequence, it makes sense to do so in the
-    a single session to minimize the number of times the browser has to be
-    restarted, as this is fairly resource intensive and time consuming.
+    A session's lifecycle corresponds to that of the HTTP client which is used
+    to perform operations on the GitHub web interface. When multiple operations
+    have to be performed in sequence, it makes sense to do so in the a single
+    session to minimize the number of times the connection has to be
+    re-established.
     """
 
     def __init__(
         self,
-        context,
-        page,
+        http_client: httpx.AsyncClient,
         credentials: GithubCredentials,
-        headless: bool = True,
         base_url: str = "https://github.com",
         logger: Logger = default_logger,
     ):
-        self.context = context
-        self.page = page
+        self.http_client = http_client
         self.credentials = credentials
-        self.headless = headless
         self.base_url = base_url
         self.logger = logger
         self._lock = Lock()
 
-    async def _get_logged_in_user(self) -> str | None:
-        user_button = one_or_none(
-            await self.page.locator(
-                "#user-indicator > nav:first-child > button"
-            ).all()
-        )
-        if user_button is None:
-            return None
-        username = (await user_button.inner_text()).strip()
-        return username
+    @property
+    def state(self) -> GithubTokenClientSessionState:
+        return GithubTokenClientSessionState(cookies=self.http_client.cookies)
 
-    async def _handle_login(self) -> bool:
+    async def _handle_login(self, response: httpx.Response) -> bool:
         """
         Automatically handle login if necessary, otherwise do nothing.
 
@@ -139,53 +119,38 @@ class AsyncGithubTokenClientSession:
             `True` if a login was actually performed, `False` if nothing was
             done.
         """
-        logged_in_user = await self._get_logged_in_user()
-        if logged_in_user is not None:
-            if logged_in_user == self.credentials.username:
-                self.logger.info("no login required")
-                return False
-            else:
-                # TODO log out & go to login page
-                raise NotImplementedError(
-                    f"logged-in user {logged_in_user!r} doesn't match "
-                    f"credential username {self.credentials.username!r}, "
-                    "which can't be handled yet"
-                )
-        if not self.page.url.startswith(self.base_url.rstrip("/") + "/login"):
+        if not str(response.url).startswith(
+            self.base_url.rstrip("/") + "/login"
+        ):
             self.logger.info("no login required")
             return False
-        username_input = one_or_none(
-            await self.page.locator("#login_field").all()
+        else:
+            self.logger.info("login required")
+        html = BeautifulSoup(response.text, "html.parser")
+        authenticity_token = (
+            one_or_none(html.select('input[name="authenticity_token"]')) or {}
+        ).get("value")
+        if authenticity_token is None:
+            raise UnexpectedContentError("no authenticity token found on page")
+        print(authenticity_token)
+        login_response = await self.http_client.post(
+            self.base_url.rstrip("/") + "/session",
+            data={
+                "login": self.credentials.username,
+                "password": self.credentials.password,
+                "authenticity_token": authenticity_token,
+            },
+            follow_redirects=True,
         )
-        if not username_input:
-            raise UnexpectedContentError(
-                "username field not found on login page"
-            )
-        password_input = one_or_none(
-            await self.page.locator("#password").all()
-        )
-        if not password_input:
-            raise UnexpectedContentError(
-                "password field not found on login page"
-            )
-        await username_input.fill(self.credentials.username)
-        await password_input.fill(self.credentials.password)
-        async with self.page.expect_event(
-            "domcontentloaded"
-        ), self.page.expect_navigation():
-            self.logger.info("logging in...")
-            await password_input.press("Enter")
-        if self.page.url.startswith(self.base_url.rstrip("/") + "/session"):
-            login_errors_or_none = one_or_none(
-                await self.page.locator("#js-flash-container").all()
-            )
-            login_error = (
-                await login_errors_or_none.inner_text()
-                if login_errors_or_none is not None
-                else None
+        if str(login_response.url).startswith(
+            self.base_url.rstrip("/") + "/session"
+        ):
+            login_response_html = BeautifulSoup(login_response, "html.parser")
+            login_error = one_or_none(
+                login_response_html.select("#js-flash-container")
             )
             if login_error is not None:
-                raise LoginError(login_error)
+                raise LoginError(login_error.get_text().strip())
             raise UnexpectedContentError(
                 "ended up back on login page but not sure why"
             )
@@ -210,15 +175,6 @@ class AsyncGithubTokenClientSession:
         ), self.page.expect_navigation():
             self.logger.info("confirming password...")
             await password_input.press("Enter")
-
-    async def wait_until_closed(self):
-        """
-        Wait until the user closes the browser if it's not headless.
-
-        Has no effect and returns immediately in headless mode.
-        """
-
-        await self.page.wait_for_event("close", timeout=0)
 
     @_with_lock
     async def create_fine_grained_token(
@@ -345,19 +301,19 @@ class AsyncGithubTokenClientSession:
         One use case for this is to find out whether the given credentials are
         correct without doing anything else. It should however be noted that an
         actual login will only be performed when necessary, i.e. when the
-        session's current state (resulting from loaded persistent browser state
-        or prior actions) isn't already logged in.
+        session's current state (resulting from loaded session state or prior
+        actions) isn't already logged in.
 
         Returns:
             `True` if a login was actually performed, `False` if nothing was
             done.
         """
-        await self.page.goto(
-            self.base_url + "/login",
-            wait_until="domcontentloaded",
+        response = await self.http_client.get(
+            self.base_url.rstrip("/") + "/login",
+            follow_redirects=True,
         )
         # login if necessary
-        return await self._handle_login()
+        return await self._handle_login(response)
 
     @_with_lock
     async def get_fine_grained_token_list(
@@ -369,12 +325,11 @@ class AsyncGithubTokenClientSession:
         Returns:
             List of tokens.
         """
-        await self.page.goto(
-            self.base_url + "/settings/tokens?type=beta",
-            wait_until="domcontentloaded",
+        response = await self.http_client.get(
+            self.base_url.rstrip("/") + "/settings/tokens?type=beta"
         )
         # login if necessary
-        await self._handle_login()
+        await self._handle_login(response)
         # confirm password if necessary
         await self._confirm_password()
         # get list

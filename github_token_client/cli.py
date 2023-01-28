@@ -17,7 +17,6 @@ cli_app = typer.Typer(
 
 @dataclass
 class TyperState:
-    headless: bool
     persist_to: Path | None
     username: str | None
     password: str | None
@@ -26,7 +25,6 @@ class TyperState:
 
 def _app_from_typer_state(state: TyperState) -> App:
     return App(
-        state.headless,
         state.persist_to,
         state.username,
         state.password,
@@ -37,12 +35,6 @@ def _app_from_typer_state(state: TyperState) -> App:
 @cli_app.callback()
 def typer_callback(
     ctx: typer.Context,
-    headless: bool = typer.Option(
-        True,
-        help="whether to run the broswer in headless mode "
-        "(note that in non-headless mode, it will wait for you to inspect "
-        "the situation and close it manually when an error happens)",
-    ),
     persist_to: str = typer.Option(
         None,
         "--persist",
@@ -68,7 +60,6 @@ def typer_callback(
     ),
 ):
     ctx.obj = TyperState(
-        headless,
         Path(persist_to) if persist_to is not None else None,
         username,
         password,
