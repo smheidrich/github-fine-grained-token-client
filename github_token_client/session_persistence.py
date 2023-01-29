@@ -3,7 +3,7 @@ from warnings import warn
 
 from aiohttp import CookieJar
 
-from github_token_client.async_client import GithubTokenClientSessionState
+from .state import GithubTokenClientSessionState
 
 cookies_filename = "cookies.pickle"
 

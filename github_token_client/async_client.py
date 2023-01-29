@@ -4,15 +4,14 @@
 import asyncio
 from asyncio import Lock
 from contextlib import asynccontextmanager
-from dataclasses import dataclass, field
 from datetime import date, timedelta
 from functools import wraps
 from logging import Logger, getLogger
+from pathlib import Path
 from typing import AsyncIterator, Sequence
 
 import aiohttp
 import dateparser
-from aiohttp.abc import AbstractCookieJar
 from bs4 import BeautifulSoup
 
 from .common import (
@@ -26,27 +25,17 @@ from .common import (
     UnexpectedContentError,
 )
 from .credentials import GithubCredentials
+from .session_persistence import load_session_state, save_session_state
+from .state import GithubTokenClientSessionState
 from .utils.sequences import one_or_none
 
 default_logger = getLogger(__name__)
 
 
-@dataclass
-class GithubTokenClientSessionState:
-    """
-    Session state that can be used to preserve logged-in states.
-
-    Re-initializing client session with this and not just credentials can
-    reduce the number of unnecessary logins that need to be performed.
-    """
-
-    cookie_jar: AbstractCookieJar | None = field(default_factory=None)
-
-
 @asynccontextmanager
 async def async_github_token_client(
     credentials: GithubCredentials,
-    state: GithubTokenClientSessionState | None = None,
+    persist_to: Path | None = None,
     base_url: str = "https://github.com",
     logger: Logger = default_logger,
 ) -> AsyncIterator["AsyncGithubTokenClientSession"]:
@@ -57,18 +46,21 @@ async def async_github_token_client(
 
     Args:
         credentials: Credentials to log into GitHub with.
-        state: Session state (avoids unnecessary logins).
+        persist_to: Directory in which to persist the session state (currently
+            just cookies). Will also be used to load previously persisted
+            sessions. ``None`` means no persistence.
         base_url: GitHub base URL.
         logger: Logger to log messages to.
 
     Returns:
       A context manager for the async session.
     """
+    state = load_session_state(persist_to) if persist_to is not None else None
     async with aiohttp.ClientSession(
         **({"cookie_jar": state.cookie_jar} if state is not None else {})
     ) as http_session:
         yield AsyncGithubTokenClientSession(
-            http_session, credentials, base_url, logger
+            http_session, credentials, persist_to, base_url, logger
         )
 
 
@@ -99,11 +91,13 @@ class AsyncGithubTokenClientSession:
         self,
         http_session: aiohttp.ClientSession,
         credentials: GithubCredentials,
+        persist_to: Path | None = None,
         base_url: str = "https://github.com",
         logger: Logger = default_logger,
     ):
         self.http_session = http_session
         self.credentials = credentials
+        self.persist_to = persist_to
         self.base_url = base_url
         self.logger = logger
         self._lock = Lock()
@@ -114,6 +108,10 @@ class AsyncGithubTokenClientSession:
         return GithubTokenClientSessionState(
             cookie_jar=self.http_session.cookie_jar
         )
+
+    def _persist_state_if_requested(self):
+        if self.persist_to is not None:
+            save_session_state(self.persist_to, self.state)
 
     async def _handle_login(self) -> bool:
         """
@@ -127,6 +125,7 @@ class AsyncGithubTokenClientSession:
             self.base_url.rstrip("/") + "/login"
         ):
             self.logger.info("no login required")
+            self._persist_state_if_requested()
             return False
         else:
             self.logger.info("login required")
@@ -137,7 +136,6 @@ class AsyncGithubTokenClientSession:
         ).get("value")
         if authenticity_token is None:
             raise UnexpectedContentError("no authenticity token found on page")
-        print(authenticity_token)
         self._response = await self.http_session.post(
             self.base_url.rstrip("/") + "/session",
             data={
@@ -161,6 +159,7 @@ class AsyncGithubTokenClientSession:
             raise UnexpectedContentError(
                 "ended up back on login page but not sure why"
             )
+        self._persist_state_if_requested()
         return True
 
     async def _confirm_password(self):

@@ -6,11 +6,6 @@ from itertools import count
 from pathlib import Path
 from pprint import pprint
 
-from github_token_client.session_persistence import (
-    load_session_state,
-    save_session_state,
-)
-
 from .async_client import (
     AsyncGithubTokenClientSession,
     async_github_token_client,
@@ -52,22 +47,12 @@ class App:
         ) = get_credentials_from_keyring_and_prompt(
             self.github_base_url, self.username, self.password
         )
-        session_state = (
-            load_session_state(self.persist_to / "session-state.json")
-            if self.persist_to is not None
-            else None
-        )
         async with async_github_token_client(
-            credentials, session_state, self.github_base_url
+            credentials, self.persist_to, self.github_base_url
         ) as session, self._handle_errors(session):
             for attempt in count():
                 try:
                     did_login = await session.login()
-                    if self.persist_to is not None:
-                        save_session_state(
-                            self.persist_to / "session-state.json",
-                            session.state,
-                        )
                     if did_login and credentials_are_new and interactive:
                         save = input(
                             "success! save credentials to keyring (Y/n)? "
