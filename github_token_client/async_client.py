@@ -8,10 +8,11 @@ from dataclasses import dataclass, field
 from datetime import date, timedelta
 from functools import wraps
 from logging import Logger, getLogger
-from typing import AsyncIterator, Mapping, Sequence
+from typing import AsyncIterator, Sequence
 
+import aiohttp
 import dateparser
-import httpx
+from aiohttp.abc import AbstractCookieJar
 from bs4 import BeautifulSoup
 
 from .common import (
@@ -39,7 +40,7 @@ class GithubTokenClientSessionState:
     reduce the number of unnecessary logins that need to be performed.
     """
 
-    cookies: Mapping[str, str] = field(default_factory=dict)
+    cookie_jar: AbstractCookieJar | None = field(default_factory=None)
 
 
 @asynccontextmanager
@@ -63,11 +64,11 @@ async def async_github_token_client(
     Returns:
       A context manager for the async session.
     """
-    async with httpx.AsyncClient(
-        **({"cookies": state.cookies} if state is not None else {})
-    ) as http_client:
+    async with aiohttp.ClientSession(
+        **({"cookie_jar": state.cookie_jar} if state is not None else {})
+    ) as http_session:
         yield AsyncGithubTokenClientSession(
-            http_client, credentials, base_url, logger
+            http_session, credentials, base_url, logger
         )
 
 
@@ -96,12 +97,12 @@ class AsyncGithubTokenClientSession:
 
     def __init__(
         self,
-        http_client: httpx.AsyncClient,
+        http_session: aiohttp.ClientSession,
         credentials: GithubCredentials,
         base_url: str = "https://github.com",
         logger: Logger = default_logger,
     ):
-        self.http_client = http_client
+        self.http_session = http_session
         self.credentials = credentials
         self.base_url = base_url
         self.logger = logger
@@ -109,9 +110,11 @@ class AsyncGithubTokenClientSession:
 
     @property
     def state(self) -> GithubTokenClientSessionState:
-        return GithubTokenClientSessionState(cookies=self.http_client.cookies)
+        return GithubTokenClientSessionState(
+            cookie_jar=self.http_session.cookie_jar
+        )
 
-    async def _handle_login(self, response: httpx.Response) -> bool:
+    async def _handle_login(self, response: aiohttp.ClientResponse) -> bool:
         """
         Automatically handle login if necessary, otherwise do nothing.
 
@@ -126,26 +129,29 @@ class AsyncGithubTokenClientSession:
             return False
         else:
             self.logger.info("login required")
-        html = BeautifulSoup(response.text, "html.parser")
+        response_text = await response.text()
+        html = BeautifulSoup(response_text, "html.parser")
         authenticity_token = (
             one_or_none(html.select('input[name="authenticity_token"]')) or {}
         ).get("value")
         if authenticity_token is None:
             raise UnexpectedContentError("no authenticity token found on page")
         print(authenticity_token)
-        login_response = await self.http_client.post(
+        login_response = await self.http_session.post(
             self.base_url.rstrip("/") + "/session",
             data={
                 "login": self.credentials.username,
                 "password": self.credentials.password,
                 "authenticity_token": authenticity_token,
             },
-            follow_redirects=True,
         )
         if str(login_response.url).startswith(
             self.base_url.rstrip("/") + "/session"
         ):
-            login_response_html = BeautifulSoup(login_response, "html.parser")
+            login_response_text = await login_response.text()
+            login_response_html = BeautifulSoup(
+                login_response_text, "html.parser"
+            )
             login_error = one_or_none(
                 login_response_html.select("#js-flash-container")
             )
@@ -308,9 +314,8 @@ class AsyncGithubTokenClientSession:
             `True` if a login was actually performed, `False` if nothing was
             done.
         """
-        response = await self.http_client.get(
+        response = await self.http_session.get(
             self.base_url.rstrip("/") + "/login",
-            follow_redirects=True,
         )
         # login if necessary
         return await self._handle_login(response)
@@ -325,7 +330,7 @@ class AsyncGithubTokenClientSession:
         Returns:
             List of tokens.
         """
-        response = await self.http_client.get(
+        response = await self.http_session.get(
             self.base_url.rstrip("/") + "/settings/tokens?type=beta"
         )
         # login if necessary

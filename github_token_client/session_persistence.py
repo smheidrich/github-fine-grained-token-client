@@ -1,36 +1,32 @@
-import json
 from pathlib import Path
+from warnings import warn
+
+from aiohttp import CookieJar
 
 from github_token_client.async_client import GithubTokenClientSessionState
 
-
-class MalformedSessionStateFile(Exception):
-    pass
+cookies_filename = "cookies.pickle"
 
 
 def save_session_state(
-    path: Path,
+    dir_path: Path,
     state: GithubTokenClientSessionState,
     create_parents: bool = True,
 ) -> None:
-    if create_parents:
-        path.parent.mkdir(exist_ok=True, parents=True)
-    with path.open("w") as f:
-        json.dump(
-            {"version": "1", "data": {"cookies": dict(state.cookies.jar)}}, f
-        )
+    dir_path.mkdir(exist_ok=True, parents=create_parents)
+    # save cookies using provided method (dumb b/c uses pickle but oh well)
+    state.cookie_jar.save(dir_path / cookies_filename)
 
 
 def load_session_state(
-    path: Path,
+    dir_path: Path,
 ) -> GithubTokenClientSessionState | None:
-    # TODO add logging in case of errors
+    cookies_path = dir_path / cookies_filename
+    cookie_jar = CookieJar()
     try:
-        with path.open() as f:
-            d = json.load(f)
-            version = d["version"]
-            if version != "1":
-                return None
-            return GithubTokenClientSessionState(cookies=d["data"]["cookies"])
-    except (FileNotFoundError, KeyError, json.JSONDecodeError):
+        cookie_jar.load(cookies_path)
+    except Exception:
+        # TODO add proper logging using logging module instead
+        warn(f"error reading pickled cookies at {cookies_path} - ignoring")
         return None
+    return GithubTokenClientSessionState(cookie_jar=cookie_jar)
