@@ -107,6 +107,7 @@ class AsyncGithubTokenClientSession:
         self.base_url = base_url
         self.logger = logger
         self._lock = Lock()
+        self._response: aiohttp.ClientResponse | None = None  # last response
 
     @property
     def state(self) -> GithubTokenClientSessionState:
@@ -114,7 +115,7 @@ class AsyncGithubTokenClientSession:
             cookie_jar=self.http_session.cookie_jar
         )
 
-    async def _handle_login(self, response: aiohttp.ClientResponse) -> bool:
+    async def _handle_login(self) -> bool:
         """
         Automatically handle login if necessary, otherwise do nothing.
 
@@ -122,14 +123,14 @@ class AsyncGithubTokenClientSession:
             `True` if a login was actually performed, `False` if nothing was
             done.
         """
-        if not str(response.url).startswith(
+        if not str(self._response.url).startswith(
             self.base_url.rstrip("/") + "/login"
         ):
             self.logger.info("no login required")
             return False
         else:
             self.logger.info("login required")
-        response_text = await response.text()
+        response_text = await self._response.text()
         html = BeautifulSoup(response_text, "html.parser")
         authenticity_token = (
             one_or_none(html.select('input[name="authenticity_token"]')) or {}
@@ -137,7 +138,7 @@ class AsyncGithubTokenClientSession:
         if authenticity_token is None:
             raise UnexpectedContentError("no authenticity token found on page")
         print(authenticity_token)
-        login_response = await self.http_session.post(
+        self._response = await self.http_session.post(
             self.base_url.rstrip("/") + "/session",
             data={
                 "login": self.credentials.username,
@@ -145,10 +146,10 @@ class AsyncGithubTokenClientSession:
                 "authenticity_token": authenticity_token,
             },
         )
-        if str(login_response.url).startswith(
+        if str(self._response.url).startswith(
             self.base_url.rstrip("/") + "/session"
         ):
-            login_response_text = await login_response.text()
+            login_response_text = await self._response.text()
             login_response_html = BeautifulSoup(
                 login_response_text, "html.parser"
             )
@@ -314,11 +315,11 @@ class AsyncGithubTokenClientSession:
             `True` if a login was actually performed, `False` if nothing was
             done.
         """
-        response = await self.http_session.get(
+        self._response = await self.http_session.get(
             self.base_url.rstrip("/") + "/login",
         )
         # login if necessary
-        return await self._handle_login(response)
+        return await self._handle_login()
 
     @_with_lock
     async def get_fine_grained_token_list(
