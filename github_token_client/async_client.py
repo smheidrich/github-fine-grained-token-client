@@ -101,7 +101,6 @@ class AsyncGithubTokenClientSession:
         self.base_url = base_url
         self.logger = logger
         self._lock = Lock()
-        self._response: aiohttp.ClientResponse | None = None  # last response
 
     @property
     def state(self) -> GithubTokenClientSessionState:
@@ -113,7 +112,7 @@ class AsyncGithubTokenClientSession:
         if self.persist_to is not None:
             save_session_state(self.persist_to, self.state)
 
-    async def _handle_login(self) -> bool:
+    async def _handle_login(self, response: aiohttp.ClientResponse) -> bool:
         """
         Automatically handle login if necessary, otherwise do nothing.
 
@@ -121,7 +120,7 @@ class AsyncGithubTokenClientSession:
             `True` if a login was actually performed, `False` if nothing was
             done.
         """
-        if not str(self._response.url).startswith(
+        if not str(response.url).startswith(
             self.base_url.rstrip("/") + "/login"
         ):
             self.logger.info("no login required")
@@ -129,36 +128,36 @@ class AsyncGithubTokenClientSession:
             return False
         else:
             self.logger.info("login required")
-        response_text = await self._response.text()
+        response_text = await response.text()
         html = BeautifulSoup(response_text, "html.parser")
         authenticity_token = (
             one_or_none(html.select('input[name="authenticity_token"]')) or {}
         ).get("value")
         if authenticity_token is None:
             raise UnexpectedContentError("no authenticity token found on page")
-        self._response = await self.http_session.post(
+        async with await self.http_session.post(
             self.base_url.rstrip("/") + "/session",
             data={
                 "login": self.credentials.username,
                 "password": self.credentials.password,
                 "authenticity_token": authenticity_token,
             },
-        )
-        if str(self._response.url).startswith(
-            self.base_url.rstrip("/") + "/session"
-        ):
-            login_response_text = await self._response.text()
-            login_response_html = BeautifulSoup(
-                login_response_text, "html.parser"
-            )
-            login_error = one_or_none(
-                login_response_html.select("#js-flash-container")
-            )
-            if login_error is not None:
-                raise LoginError(login_error.get_text().strip())
-            raise UnexpectedContentError(
-                "ended up back on login page but not sure why"
-            )
+        ) as response:
+            if str(response.url).startswith(
+                self.base_url.rstrip("/") + "/session"
+            ):
+                login_response_text = await response.text()
+                login_response_html = BeautifulSoup(
+                    login_response_text, "html.parser"
+                )
+                login_error = one_or_none(
+                    login_response_html.select("#js-flash-container")
+                )
+                if login_error is not None:
+                    raise LoginError(login_error.get_text().strip())
+                raise UnexpectedContentError(
+                    "ended up back on login page but not sure why"
+                )
         self._persist_state_if_requested()
         return True
 
@@ -314,11 +313,11 @@ class AsyncGithubTokenClientSession:
             `True` if a login was actually performed, `False` if nothing was
             done.
         """
-        self._response = await self.http_session.get(
+        async with self.http_session.get(
             self.base_url.rstrip("/") + "/login",
-        )
-        # login if necessary
-        return await self._handle_login()
+        ) as response:
+            # login if necessary
+            return await self._handle_login(response)
 
     @_with_lock
     async def get_fine_grained_token_list(
@@ -330,13 +329,13 @@ class AsyncGithubTokenClientSession:
         Returns:
             List of tokens.
         """
-        response = await self.http_session.get(
+        async with self.http_session.get(
             self.base_url.rstrip("/") + "/settings/tokens?type=beta"
-        )
-        # login if necessary
-        await self._handle_login(response)
-        # confirm password if necessary
-        await self._confirm_password()
+        ) as response:
+            # login if necessary
+            await self._handle_login(response)
+            # confirm password if necessary
+            await self._confirm_password()
         # get list
         token_locs = await self.page.locator(
             ".listgroup > .access-token > .listgroup-item"
