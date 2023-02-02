@@ -161,7 +161,45 @@ class AsyncGithubTokenClientSession:
         self._persist_state_if_requested()
         return True
 
-    async def _confirm_password(self):
+    async def _confirm_password(self, response) -> None:
+        response_text = await response.text()
+        html = BeautifulSoup(response_text, "html.parser")
+        confirm_access_heading = one_or_none(html.select("#sudo > div > h1"))
+        if confirm_access_heading is None:
+            self._logger.info("no password confirmation required")
+            return
+        authenticity_token = (
+            one_or_none(html.select('input[name="authenticity_token"]')) or {}
+        ).get("value")
+        if authenticity_token is None:
+            raise UnexpectedContentError("no authenticity token found on page")
+        async with await self.http_session.post(
+            self.base_url.rstrip("/") + "/session",
+            data={
+                "sudo_password": self.credentials.password,
+                "authenticity_token": authenticity_token,
+                "sudo_return_to": response.url,
+                "credential_type": "password",
+            },
+        ) as response:
+            if str(response.url).startswith(
+                self.base_url.rstrip("/") + "/session"
+            ):
+                login_response_text = await response.text()
+                login_response_html = BeautifulSoup(
+                    login_response_text, "html.parser"
+                )
+                login_error = one_or_none(
+                    login_response_html.select("#js-flash-container")
+                )
+                if login_error is not None:
+                    raise LoginError(login_error.get_text().strip())
+                raise UnexpectedContentError(
+                    "ended up back on login page but not sure why"
+                )
+        self._persist_state_if_requested()
+        return True
+        # XXX old:
         confirm_heading = one_or_none(
             await self.page.get_by_text("Confirm access").all()
         )
@@ -335,7 +373,7 @@ class AsyncGithubTokenClientSession:
             # login if necessary
             await self._handle_login(response)
             # confirm password if necessary
-            await self._confirm_password()
+            await self._confirm_password(response)
         # get list
         token_locs = await self.page.locator(
             ".listgroup > .access-token > .listgroup-item"
