@@ -13,6 +13,13 @@ from typing import AsyncIterator, Sequence
 import aiohttp
 import dateparser
 from bs4 import BeautifulSoup
+from github_token_client.persisting_http_session import (
+    PersistingHttpClientSession,
+)
+
+from github_token_client.response_holding_http_session import (
+    ResponseHoldingHttpSession,
+)
 
 from .common import (
     AllRepositories,
@@ -25,8 +32,6 @@ from .common import (
     UnexpectedContentError,
 )
 from .credentials import GithubCredentials
-from .session_persistence import load_session_state, save_session_state
-from .state import GithubTokenClientSessionState
 from .utils.sequences import one_or_none
 
 default_logger = getLogger(__name__)
@@ -55,10 +60,7 @@ async def async_github_token_client(
     Returns:
       A context manager for the async session.
     """
-    state = load_session_state(persist_to) if persist_to is not None else None
-    async with aiohttp.ClientSession(
-        **({"cookie_jar": state.cookie_jar} if state is not None else {})
-    ) as http_session:
+    async with aiohttp.ClientSession() as http_session:
         yield AsyncGithubTokenClientSession(
             http_session, credentials, persist_to, base_url, logger
         )
@@ -95,24 +97,18 @@ class AsyncGithubTokenClientSession:
         base_url: str = "https://github.com",
         logger: Logger = default_logger,
     ):
-        self.http_session = http_session
+        self.inner_http_session = http_session
+        if persist_to is not None:
+            http_session = PersistingHttpClientSession(
+                http_session, persist_to
+            )
+        self.http_session = ResponseHoldingHttpSession(http_session)
         self.credentials = credentials
-        self.persist_to = persist_to
         self.base_url = base_url
         self.logger = logger
         self._lock = Lock()
 
-    @property
-    def state(self) -> GithubTokenClientSessionState:
-        return GithubTokenClientSessionState(
-            cookie_jar=self.http_session.cookie_jar
-        )
-
-    def _persist_state_if_requested(self):
-        if self.persist_to is not None:
-            save_session_state(self.persist_to, self.state)
-
-    async def _handle_login(self, response: aiohttp.ClientResponse) -> bool:
+    async def _handle_login(self) -> bool:
         """
         Automatically handle login if necessary, otherwise do nothing.
 
@@ -120,11 +116,12 @@ class AsyncGithubTokenClientSession:
             `True` if a login was actually performed, `False` if nothing was
             done.
         """
+        response = self.http_session.response
+        assert response is not None
         if not str(response.url).startswith(
             self.base_url.rstrip("/") + "/login"
         ):
             self.logger.info("no login required")
-            self._persist_state_if_requested()
             return False
         else:
             self.logger.info("login required")
@@ -135,45 +132,48 @@ class AsyncGithubTokenClientSession:
         ).get("value")
         if authenticity_token is None:
             raise UnexpectedContentError("no authenticity token found on page")
-        async with await self.http_session.post(
+        response = await self.http_session.post(
             self.base_url.rstrip("/") + "/session",
             data={
                 "login": self.credentials.username,
                 "password": self.credentials.password,
                 "authenticity_token": authenticity_token,
             },
-        ) as response:
-            if str(response.url).startswith(
-                self.base_url.rstrip("/") + "/session"
-            ):
-                login_response_text = await response.text()
-                login_response_html = BeautifulSoup(
-                    login_response_text, "html.parser"
-                )
-                login_error = one_or_none(
-                    login_response_html.select("#js-flash-container")
-                )
-                if login_error is not None:
-                    raise LoginError(login_error.get_text().strip())
-                raise UnexpectedContentError(
-                    "ended up back on login page but not sure why"
-                )
-        self._persist_state_if_requested()
+        )
+        if str(response.url).startswith(
+            self.base_url.rstrip("/") + "/session"
+        ):
+            login_response_text = await response.text()
+            login_response_html = BeautifulSoup(
+                login_response_text, "html.parser"
+            )
+            login_error = one_or_none(
+                login_response_html.select("#js-flash-container")
+            )
+            if login_error is not None:
+                raise LoginError(login_error.get_text().strip())
+            raise UnexpectedContentError(
+                "ended up back on login page but not sure why"
+            )
         return True
 
-    async def _confirm_password(self, response) -> None:
+    async def _confirm_password(self) -> None:
+        response = self.http_session.response
+        assert response is not None
         response_text = await response.text()
         html = BeautifulSoup(response_text, "html.parser")
         confirm_access_heading = one_or_none(html.select("#sudo > div > h1"))
         if confirm_access_heading is None:
-            self._logger.info("no password confirmation required")
+            self.logger.info("no password confirmation required")
             return
+        else:
+            self.logger.info("password confirmation required")
         authenticity_token = (
             one_or_none(html.select('input[name="authenticity_token"]')) or {}
         ).get("value")
         if authenticity_token is None:
             raise UnexpectedContentError("no authenticity token found on page")
-        async with await self.http_session.post(
+        response = await self.http_session.post(
             self.base_url.rstrip("/") + "/session",
             data={
                 "sudo_password": self.credentials.password,
@@ -181,43 +181,23 @@ class AsyncGithubTokenClientSession:
                 "sudo_return_to": response.url,
                 "credential_type": "password",
             },
-        ) as response:
-            if str(response.url).startswith(
-                self.base_url.rstrip("/") + "/session"
-            ):
-                login_response_text = await response.text()
-                login_response_html = BeautifulSoup(
-                    login_response_text, "html.parser"
-                )
-                login_error = one_or_none(
-                    login_response_html.select("#js-flash-container")
-                )
-                if login_error is not None:
-                    raise LoginError(login_error.get_text().strip())
-                raise UnexpectedContentError(
-                    "ended up back on login page but not sure why"
-                )
-        self._persist_state_if_requested()
+        )
+        if str(response.url).startswith(
+            self.base_url.rstrip("/") + "/session"
+        ):
+            login_response_text = await response.text()
+            login_response_html = BeautifulSoup(
+                login_response_text, "html.parser"
+            )
+            login_error = one_or_none(
+                login_response_html.select("#js-flash-container")
+            )
+            if login_error is not None:
+                raise LoginError(login_error.get_text().strip())
+            raise UnexpectedContentError(
+                "ended up back on login page but not sure why"
+            )
         return True
-        # XXX old:
-        confirm_heading = one_or_none(
-            await self.page.get_by_text("Confirm access").all()
-        )
-        if not confirm_heading:
-            self.logger.info("no password confirmation required")
-            return
-        password_input = one_or_none(
-            await self.page.locator("#sudo_password").all()
-        )
-        if not password_input:
-            raise UnexpectedContentError("no password field found")
-            return
-        await password_input.fill(self.credentials.password)
-        async with self.page.expect_event(
-            "domcontentloaded"
-        ), self.page.expect_navigation():
-            self.logger.info("confirming password...")
-            await password_input.press("Enter")
 
     @_with_lock
     async def create_fine_grained_token(
@@ -351,11 +331,9 @@ class AsyncGithubTokenClientSession:
             `True` if a login was actually performed, `False` if nothing was
             done.
         """
-        async with self.http_session.get(
-            self.base_url.rstrip("/") + "/login",
-        ) as response:
-            # login if necessary
-            return await self._handle_login(response)
+        await self.http_session.get(self.base_url.rstrip("/") + "/login")
+        # login if necessary
+        return await self._handle_login()
 
     @_with_lock
     async def get_fine_grained_token_list(
@@ -367,13 +345,13 @@ class AsyncGithubTokenClientSession:
         Returns:
             List of tokens.
         """
-        async with self.http_session.get(
+        await self.http_session.get(
             self.base_url.rstrip("/") + "/settings/tokens?type=beta"
-        ) as response:
-            # login if necessary
-            await self._handle_login(response)
-            # confirm password if necessary
-            await self._confirm_password(response)
+        )
+        # login if necessary
+        await self._handle_login()
+        # confirm password if necessary
+        await self._confirm_password()
         # get list
         token_locs = await self.page.locator(
             ".listgroup > .access-token > .listgroup-item"
@@ -416,9 +394,8 @@ class AsyncGithubTokenClientSession:
         Returns:
             List of tokens.
         """
-        await self.page.goto(
-            self.base_url + "/settings/tokens",
-            wait_until="domcontentloaded",
+        await self.http_session.get(
+            self.base_url.rstrip("/") + "/settings/tokens"
         )
         # login if necessary
         await self._handle_login()
