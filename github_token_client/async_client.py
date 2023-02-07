@@ -99,7 +99,7 @@ class AsyncGithubTokenClientSession:
     ):
         self.inner_http_session = http_session
         if persist_to is not None:
-            http_session = PersistingHttpClientSession(
+            http_session = PersistingHttpClientSession.make_loaded(
                 http_session, persist_to
             )
         self.http_session = ResponseHoldingHttpSession(http_session)
