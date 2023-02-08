@@ -111,6 +111,22 @@ class AsyncGithubTokenClientSession:
         self.logger = logger
         self._lock = Lock()
 
+    @property
+    def _response(self) -> aiohttp.ClientResponse | None:
+        """
+        The last received response, if any.
+        """
+        return self.http_session.response
+
+    @property
+    def _persisting_http_session(self) -> PersistingHttpClientSession | None:
+        """
+        The persisting HTTP session, if any.
+        """
+        if isinstance(self.http_session.inner, PersistingHttpClientSession):
+            return self.http_session.inner
+        return None
+
     @classmethod
     def make_with_cookies_loaded(cls: Type[T], *args, **kwargs) -> T:
         """
@@ -124,8 +140,8 @@ class AsyncGithubTokenClientSession:
         """
         Load cookies from persistence location (if any) into HTTP session.
         """
-        if isinstance(self.http_session.inner, PersistingHttpClientSession):
-            self.http_session.inner.load()
+        if self._persisting_http_session is not None:
+            self._persisting_http_session.load()
 
     async def _handle_login(self) -> bool:
         """
@@ -135,7 +151,7 @@ class AsyncGithubTokenClientSession:
             `True` if a login was actually performed, `False` if nothing was
             done.
         """
-        response = self.http_session.response
+        response = self._response
         assert response is not None
         if not str(response.url).startswith(
             self.base_url.rstrip("/") + "/login"
@@ -177,7 +193,7 @@ class AsyncGithubTokenClientSession:
         return True
 
     async def _confirm_password(self) -> None:
-        response = self.http_session.response
+        response = self._response
         assert response is not None
         response_text = await response.text()
         html = BeautifulSoup(response_text, "html.parser")
