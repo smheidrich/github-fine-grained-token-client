@@ -8,15 +8,15 @@ from datetime import date, timedelta
 from functools import wraps
 from logging import Logger, getLogger
 from pathlib import Path
-from typing import AsyncIterator, Sequence
+from typing import AsyncIterator, Sequence, Type, TypeVar
 
 import aiohttp
 import dateparser
 from bs4 import BeautifulSoup
+
 from github_token_client.persisting_http_session import (
     PersistingHttpClientSession,
 )
-
 from github_token_client.response_holding_http_session import (
     ResponseHoldingHttpSession,
 )
@@ -61,7 +61,7 @@ async def async_github_token_client(
       A context manager for the async session.
     """
     async with aiohttp.ClientSession() as http_session:
-        yield AsyncGithubTokenClientSession(
+        yield AsyncGithubTokenClientSession.make_with_cookies_loaded(
             http_session, credentials, persist_to, base_url, logger
         )
 
@@ -73,6 +73,9 @@ def _with_lock(meth):
             return await meth(self, *args, **kwargs)
 
     return _with_lock
+
+
+T = TypeVar("T")
 
 
 class AsyncGithubTokenClientSession:
@@ -99,7 +102,7 @@ class AsyncGithubTokenClientSession:
     ):
         self.inner_http_session = http_session
         if persist_to is not None:
-            http_session = PersistingHttpClientSession.make_loaded(
+            http_session = PersistingHttpClientSession(
                 http_session, persist_to
             )
         self.http_session = ResponseHoldingHttpSession(http_session)
@@ -107,6 +110,22 @@ class AsyncGithubTokenClientSession:
         self.base_url = base_url
         self.logger = logger
         self._lock = Lock()
+
+    @classmethod
+    def make_with_cookies_loaded(cls: Type[T], *args, **kwargs) -> T:
+        """
+        Convenience method to instantiate with cookies already loaded.
+        """
+        obj = cls(*args, **kwargs)
+        obj.load_cookies()
+        return obj
+
+    def load_cookies(self):
+        """
+        Load cookies from persistence location (if any) into HTTP session.
+        """
+        if isinstance(self.http_session.inner, PersistingHttpClientSession):
+            self.http_session.inner.load()
 
     async def _handle_login(self) -> bool:
         """
