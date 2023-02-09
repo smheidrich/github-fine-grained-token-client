@@ -388,34 +388,37 @@ class AsyncGithubTokenClientSession:
         # confirm password if necessary
         await self._confirm_password()
         # get list
-        token_locs = await self.page.locator(
+        response_text = await self._response.text()
+        html = BeautifulSoup(response_text, "html.parser")
+        token_elems = html.select(
             ".listgroup > .access-token > .listgroup-item"
-        ).all()
+        )
         token_list = []
-        for token_loc in token_locs:
-            last_used_str = await one_or_none(
-                await token_loc.locator(".last-used").all()
-            ).inner_text()
+        for token_elem in token_elems:
+            last_used_str = (
+                one_or_none(token_elem.select(".last-used")).get_text().strip()
+            )
             name = (
-                await one_or_none(
-                    await token_loc.locator(".token-description").all()
-                ).inner_text()
-            ).strip()
+                one_or_none(token_elem.select(".token-description"))
+                .get_text()
+                .strip()
+            )
             # these are loaded with JS:
+            # TODO fetch separately?
             # TODO handle expired tokens (unsure yet how that looks)
-            expires_loc = token_loc.locator(".text-italic")
-            await expires_loc.wait_for(state="visible", timeout=5000)
-            expires_str = await one_or_none(
-                await expires_loc.all()
-            ).inner_text()
-            if expires_str.startswith("on "):
-                expires_str = expires_str[2:]
-            expires = dateparser.parse(expires_str)
-            if expires is None:
-                raise ValueError(
-                    "could not parse expiration date {expires_str!r}"
-                )
-            entry = FineGrainedTokenListEntry(name, expires, last_used_str)
+            # expires_loc = token_loc.locator(".text-italic")
+            # await expires_loc.wait_for(state="visible", timeout=5000)
+            # expires_str = await one_or_none(
+            # await expires_loc.all()
+            # ).inner_text()
+            # if expires_str.startswith("on "):
+            # expires_str = expires_str[2:]
+            # expires = dateparser.parse(expires_str)
+            # if expires is None:
+            # raise ValueError(
+            # "could not parse expiration date {expires_str!r}"
+            # )
+            entry = FineGrainedTokenListEntry(name, None, last_used_str)
             token_list.append(entry)
         return token_list
 
@@ -437,26 +440,26 @@ class AsyncGithubTokenClientSession:
         # confirm password if necessary
         await self._confirm_password()
         # get list
-        token_locs = await self.page.locator(
+        response_text = await self._response.text()
+        html = BeautifulSoup(response_text, "html.parser")
+        token_elems = html.select(
             ".listgroup > .access-token > .listgroup-item"
-        ).all()
+        )
         token_list = []
-        for token_loc in token_locs:
-            last_used_str = await one_or_none(
-                await token_loc.locator(".last-used").all()
-            ).inner_text()
+        for token_elem in token_elems:
+            last_used_str = (
+                one_or_none(token_elem.select(".last-used")).get_text().strip()
+            )
             name = (
-                await one_or_none(
-                    await token_loc.locator(".token-description").all()
-                ).inner_text()
-            ).strip()
+                one_or_none(
+                    token_elem.select(".token-description > strong > a")
+                )
+                .get_text()
+                .strip()
+            )
             # in contrast to the fine-grained ones, these are static HTML so we
             # don't have to wait for them to be loaded:
-            expires_loc = token_loc.locator("xpath=*[4]")
-            expires_str = await one_or_none(
-                await expires_loc.all()
-            ).inner_text()
-            expires_str = expires_str.strip()
+            expires_str = list(token_elem.children)[4].get_text().strip()
             if any(
                 expires_str.lower().startswith(x)
                 for x in ("expires on ", "expired on ")
