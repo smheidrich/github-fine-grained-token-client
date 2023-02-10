@@ -371,7 +371,7 @@ class AsyncGithubTokenClientSession:
         return await self._handle_login()
 
     @_with_lock
-    async def get_fine_grained_token_list(
+    async def get_fine_grained_token_summaries(
         self,
     ) -> Sequence[FineGrainedTokenSummary]:
         """
@@ -425,7 +425,7 @@ class AsyncGithubTokenClientSession:
         return token_list
 
     @_with_lock
-    async def get_classic_token_list(
+    async def get_classic_token_summaries(
         self,
     ) -> Sequence[ClassicTokenSummary]:
         """
