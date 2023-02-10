@@ -459,7 +459,9 @@ class AsyncGithubTokenClientSession:
             )
             # in contrast to the fine-grained ones, these are static HTML so we
             # don't have to wait for them to be loaded:
-            expires_str = list(token_elem.children)[4].get_text().strip()
+            expires_str = token_elem.contents[7].get_text().strip()
+            # XXX ^ 4th tag actually but BS counts space in between as
+            # children...
             if any(
                 expires_str.lower().startswith(x)
                 for x in ("expires on ", "expired on ")
