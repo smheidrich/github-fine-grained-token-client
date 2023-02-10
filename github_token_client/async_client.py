@@ -23,8 +23,8 @@ from github_token_client.response_holding_http_session import (
 
 from .common import (
     AllRepositories,
-    ClassicTokenListEntry,
-    FineGrainedTokenListEntry,
+    ClassicTokenSummary,
+    FineGrainedTokenSummary,
     FineGrainedTokenScope,
     LoginError,
     PublicRepositories,
@@ -373,7 +373,7 @@ class AsyncGithubTokenClientSession:
     @_with_lock
     async def get_fine_grained_token_list(
         self,
-    ) -> Sequence[FineGrainedTokenListEntry]:
+    ) -> Sequence[FineGrainedTokenSummary]:
         """
         Get list of fine-grained tokens for the logged-in account on GitHub.
 
@@ -398,11 +398,11 @@ class AsyncGithubTokenClientSession:
             last_used_str = (
                 one_or_none(token_elem.select(".last-used")).get_text().strip()
             )
-            name = (
-                one_or_none(token_elem.select(".token-description"))
-                .get_text()
-                .strip()
+            details_link = one_or_none(
+                token_elem.select(".token-description > strong a")
             )
+            id_ = int(details_link["href"].split("/")[-1])
+            name = details_link.get_text().strip()
             # these are loaded with JS:
             # TODO fetch separately?
             # TODO handle expired tokens (unsure yet how that looks)
@@ -418,14 +418,16 @@ class AsyncGithubTokenClientSession:
             # raise ValueError(
             # "could not parse expiration date {expires_str!r}"
             # )
-            entry = FineGrainedTokenListEntry(name, None, last_used_str)
+            entry = FineGrainedTokenSummary(
+                id=id_, name=name, last_used_str=last_used_str
+            )
             token_list.append(entry)
         return token_list
 
     @_with_lock
     async def get_classic_token_list(
         self,
-    ) -> Sequence[ClassicTokenListEntry]:
+    ) -> Sequence[ClassicTokenSummary]:
         """
         Get list of classic tokens for the logged-in account on GitHub.
 
@@ -450,13 +452,11 @@ class AsyncGithubTokenClientSession:
             last_used_str = (
                 one_or_none(token_elem.select(".last-used")).get_text().strip()
             )
-            name = (
-                one_or_none(
-                    token_elem.select(".token-description > strong > a")
-                )
-                .get_text()
-                .strip()
+            details_link = one_or_none(
+                token_elem.select(".token-description > strong > a")
             )
+            id_ = int(details_link["href"].split("/")[-1])
+            name = details_link.get_text().strip()
             # in contrast to the fine-grained ones, these are static HTML so we
             # don't have to wait for them to be loaded:
             expires_str = token_elem.contents[7].get_text().strip()
@@ -468,7 +468,9 @@ class AsyncGithubTokenClientSession:
             ):
                 expires_str = expires_str[len("expire* on ") :]
             expires = dateparser.parse(expires_str)
-            entry = ClassicTokenListEntry(name, expires, last_used_str)
+            entry = ClassicTokenSummary(
+                id=id_, name=name, expires=expires, last_used_str=last_used_str
+            )
             token_list.append(entry)
         return token_list
 

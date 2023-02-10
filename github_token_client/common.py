@@ -60,16 +60,35 @@ class SelectRepositories(FineGrainedTokenScope):
 
 
 @dataclass
-class FineGrainedTokenListEntry:
+class FineGrainedTokenBasics:
+    id: int
     name: str
-    expires: datetime
+
+
+@dataclass
+class FineGrainedTokenSummary(FineGrainedTokenBasics):
     # last_used: datetime | None  # TODO
     last_used_str: str
 
 
 @dataclass
-class ClassicTokenListEntry:
+class FineGrainedTokenDetails(FineGrainedTokenSummary):
+    expires: datetime
+
+
+@dataclass
+class ClassicTokenBasics:
+    id: int
     name: str
+
+
+@dataclass
+class ClassicTokenSummary(ClassicTokenBasics):
     expires: datetime | None
     # last_used: datetime | None  # TODO
     last_used_str: str
+
+
+@dataclass
+class ClassicTokenDetails(ClassicTokenSummary):
+    pass
