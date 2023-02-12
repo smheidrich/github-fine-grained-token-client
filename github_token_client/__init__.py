@@ -4,7 +4,7 @@ from .async_client import (
 )
 from .common import (
     AllRepositories,
-    FineGrainedTokenSummary,
+    FineGrainedTokenMinimalInfo,
     FineGrainedTokenScope,
     LoginError,
     PasswordError,
@@ -25,5 +25,5 @@ __all__ = [
     "FineGrainedTokenScope",
     "AllRepositories",
     "SelectRepositories",
-    "FineGrainedTokenSummary",
+    "FineGrainedTokenMinimalInfo",
 ]

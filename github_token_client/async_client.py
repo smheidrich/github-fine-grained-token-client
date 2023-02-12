@@ -4,7 +4,7 @@
 import asyncio
 from asyncio import Lock
 from contextlib import asynccontextmanager
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from functools import wraps
 from logging import Logger, getLogger
 from pathlib import Path
@@ -23,9 +23,10 @@ from github_token_client.response_holding_http_session import (
 
 from .common import (
     AllRepositories,
-    ClassicTokenSummary,
-    FineGrainedTokenSummary,
+    ClassicTokenStandardInfo,
+    FineGrainedTokenMinimalInfo,
     FineGrainedTokenScope,
+    FineGrainedTokenStandardInfo,
     LoginError,
     PublicRepositories,
     SelectRepositories,
@@ -371,15 +372,26 @@ class AsyncGithubTokenClientSession:
         return await self._handle_login()
 
     @_with_lock
-    async def get_fine_grained_token_summaries(
+    async def get_fine_grained_tokens_minimal(
         self,
-    ) -> Sequence[FineGrainedTokenSummary]:
+    ) -> Sequence[FineGrainedTokenMinimalInfo]:
         """
-        Get list of fine-grained tokens for the logged-in account on GitHub.
+        Get fine-grained token list and some information via a single request.
+
+        Note that the returned information does not include the expiration
+        date, which would require additional HTTP requests to fetch. To
+        retrieve tokens and their expiration dates, you can use
+        ``get_fine_grained_tokens`` instead.
 
         Returns:
             List of tokens.
         """
+        # the point of this method is just to add a lock around this one:
+        return await self._get_fine_grained_tokens_minimal()
+
+    async def _get_fine_grained_tokens_minimal(
+        self,
+    ) -> Sequence[FineGrainedTokenMinimalInfo]:
         await self.http_session.get(
             self.base_url.rstrip("/") + "/settings/tokens?type=beta"
         )
@@ -418,18 +430,18 @@ class AsyncGithubTokenClientSession:
             # raise ValueError(
             # "could not parse expiration date {expires_str!r}"
             # )
-            entry = FineGrainedTokenSummary(
+            entry = FineGrainedTokenMinimalInfo(
                 id=id_, name=name, last_used_str=last_used_str
             )
             token_list.append(entry)
         return token_list
 
     @_with_lock
-    async def get_classic_token_summaries(
+    async def get_classic_tokens(
         self,
-    ) -> Sequence[ClassicTokenSummary]:
+    ) -> Sequence[ClassicTokenStandardInfo]:
         """
-        Get list of classic tokens for the logged-in account on GitHub.
+        Get list of classic tokens with all data shown on the tokens page.
 
         Returns:
             List of tokens.
@@ -468,11 +480,78 @@ class AsyncGithubTokenClientSession:
             ):
                 expires_str = expires_str[len("expire* on ") :]
             expires = dateparser.parse(expires_str)
-            entry = ClassicTokenSummary(
+            entry = ClassicTokenStandardInfo(
                 id=id_, name=name, expires=expires, last_used_str=last_used_str
             )
             token_list.append(entry)
         return token_list
+
+    @_with_lock
+    async def get_fine_grained_token_expiration(
+        self, token_id: int
+    ) -> datetime:
+        """
+        Retrieve the expiration date of a single fine-grained token.
+
+        Args:
+            token_id: The fine-grained token's ID.
+
+        Returns:
+            The fine-grained token's expiration date.
+        """
+        # the point of this method is just to add a lock around this one:
+        return self._get_fine_grained_token_expiration()
+
+    async def _get_fine_grained_token_expiration(
+        self, token_id: int
+    ) -> datetime:
+        # NOTE: no lock (efficiency)! => don't rely on self._response
+        response = await self.http_session.get(
+            self.base_url
+            + f"/settings/personal-access-tokens/{token_id}/expiration?page=1"
+        )
+        response_text = await response.text()
+        html = BeautifulSoup(response_text, "html.parser")
+        expires_str = html.get_text().strip()
+        if any(
+            expires_str.lower().startswith(x)
+            for x in ("expires on ", "expired on ")
+        ):
+            expires_str = expires_str[len("expire* on ") :]
+        return dateparser.parse(expires_str)
+
+    @_with_lock
+    async def get_fine_grained_tokens(
+        self,
+    ) -> Sequence[FineGrainedTokenStandardInfo]:
+        """
+        Get list of fine-grained tokens with all data shown on the tokens page.
+
+        This has to make one additional HTTP request for each token to get its
+        expiration date (this is also how it works on GitHub's fine-grained
+        tokens page), so it will be a bit slower than
+        ``get_fine_grained_tokens_minimal``.
+
+        Returns:
+            List of tokens.
+        """
+        summaries = await self._get_fine_grained_tokens_minimal()
+        fetch_expiration_tasks = [
+            asyncio.create_task(
+                self._get_fine_grained_token_expiration(summary.id)
+            )
+            for summary in summaries
+        ]
+        expiration_dates = await asyncio.gather(*fetch_expiration_tasks)
+        return [
+            FineGrainedTokenStandardInfo(
+                id=summary.id,
+                name=summary.name,
+                last_used_str=summary.last_used_str,
+                expires=expiration_date,
+            )
+            for summary, expiration_date in zip(summaries, expiration_dates)
+        ]
 
     @_with_lock
     async def delete_token(self, name: str):

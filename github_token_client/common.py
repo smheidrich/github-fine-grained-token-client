@@ -60,35 +60,43 @@ class SelectRepositories(FineGrainedTokenScope):
 
 
 @dataclass
-class FineGrainedTokenBasics:
+class FineGrainedTokenMinimalInfo:
+    """
+    Information on a fine-grained token obtainable with just one bulk request.
+    """
+
     id: int
     name: str
-
-
-@dataclass
-class FineGrainedTokenSummary(FineGrainedTokenBasics):
     # last_used: datetime | None  # TODO
     last_used_str: str
 
 
 @dataclass
-class FineGrainedTokenDetails(FineGrainedTokenSummary):
+class FineGrainedTokenStandardInfo(FineGrainedTokenMinimalInfo):
+    """
+    Information on a fine-grained token as shown in the list on the website.
+    """
+
     expires: datetime
 
 
 @dataclass
-class ClassicTokenBasics:
+class ClassicTokenMinimalInfo:
+    """
+    Information on a classic token obtainable with just one bulk request.
+    """
+
     id: int
     name: str
-
-
-@dataclass
-class ClassicTokenSummary(ClassicTokenBasics):
     expires: datetime | None
     # last_used: datetime | None  # TODO
     last_used_str: str
 
 
 @dataclass
-class ClassicTokenDetails(ClassicTokenSummary):
+class ClassicTokenStandardInfo(ClassicTokenMinimalInfo):
+    """
+    Information on a classic token as shown in the list on the website.
+    """
+
     pass

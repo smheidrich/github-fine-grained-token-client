@@ -97,10 +97,8 @@ class App:
     def list_tokens(self) -> None:
         async def _run():
             async with self._logged_in_error_handling_session() as session:
-                classic_tokens = await session.get_classic_token_summaries()
-                fine_grained_tokens = (
-                    await session.get_fine_grained_token_summaries()
-                )
+                classic_tokens = await session.get_classic_tokens()
+                fine_grained_tokens = await session.get_fine_grained_tokens()
                 tokens = classic_tokens + fine_grained_tokens
             pprint(tokens)
 
