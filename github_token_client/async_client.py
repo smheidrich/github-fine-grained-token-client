@@ -144,6 +144,15 @@ class AsyncGithubTokenClientSession:
         if self._persisting_http_session is not None:
             self._persisting_http_session.load()
 
+    async def _get_parsed_response_html(
+        self, response: aiohttp.ClientResponse | None = None
+    ) -> BeautifulSoup:
+        if response is None:
+            response = self._response
+        assert response is not None
+        response_text = await response.text()
+        return BeautifulSoup(response_text, "html.parser")
+
     async def _handle_login(self) -> bool:
         """
         Automatically handle login if necessary, otherwise do nothing.
@@ -161,14 +170,13 @@ class AsyncGithubTokenClientSession:
             return False
         else:
             self.logger.info("login required")
-        response_text = await response.text()
-        html = BeautifulSoup(response_text, "html.parser")
+        html = await self._get_parsed_response_html()
         authenticity_token = (
             one_or_none(html.select('input[name="authenticity_token"]')) or {}
         ).get("value")
         if authenticity_token is None:
             raise UnexpectedContentError("no authenticity token found on page")
-        response = await self.http_session.post(
+        await self.http_session.post(
             self.base_url.rstrip("/") + "/session",
             data={
                 "login": self.credentials.username,
@@ -176,13 +184,10 @@ class AsyncGithubTokenClientSession:
                 "authenticity_token": authenticity_token,
             },
         )
-        if str(response.url).startswith(
+        if str(self.response.url).startswith(
             self.base_url.rstrip("/") + "/session"
         ):
-            login_response_text = await response.text()
-            login_response_html = BeautifulSoup(
-                login_response_text, "html.parser"
-            )
+            login_response_html = await self._get_parsed_response_html()
             login_error = one_or_none(
                 login_response_html.select("#js-flash-container")
             )
@@ -194,10 +199,7 @@ class AsyncGithubTokenClientSession:
         return True
 
     async def _confirm_password(self) -> None:
-        response = self._response
-        assert response is not None
-        response_text = await response.text()
-        html = BeautifulSoup(response_text, "html.parser")
+        html = await self._get_parsed_response_html()
         confirm_access_heading = one_or_none(html.select("#sudo > div > h1"))
         if confirm_access_heading is None:
             self.logger.info("no password confirmation required")
@@ -214,7 +216,7 @@ class AsyncGithubTokenClientSession:
             data={
                 "sudo_password": self.credentials.password,
                 "authenticity_token": authenticity_token,
-                "sudo_return_to": response.url,
+                "sudo_return_to": self.response.url,
                 "credential_type": "password",
             },
         )
@@ -400,8 +402,7 @@ class AsyncGithubTokenClientSession:
         # confirm password if necessary
         await self._confirm_password()
         # get list
-        response_text = await self._response.text()
-        html = BeautifulSoup(response_text, "html.parser")
+        html = await self._get_parsed_response_html()
         token_elems = html.select(
             ".listgroup > .access-token > .listgroup-item"
         )
@@ -415,21 +416,6 @@ class AsyncGithubTokenClientSession:
             )
             id_ = int(details_link["href"].split("/")[-1])
             name = details_link.get_text().strip()
-            # these are loaded with JS:
-            # TODO fetch separately?
-            # TODO handle expired tokens (unsure yet how that looks)
-            # expires_loc = token_loc.locator(".text-italic")
-            # await expires_loc.wait_for(state="visible", timeout=5000)
-            # expires_str = await one_or_none(
-            # await expires_loc.all()
-            # ).inner_text()
-            # if expires_str.startswith("on "):
-            # expires_str = expires_str[2:]
-            # expires = dateparser.parse(expires_str)
-            # if expires is None:
-            # raise ValueError(
-            # "could not parse expiration date {expires_str!r}"
-            # )
             entry = FineGrainedTokenMinimalInfo(
                 id=id_, name=name, last_used_str=last_used_str
             )
@@ -454,8 +440,7 @@ class AsyncGithubTokenClientSession:
         # confirm password if necessary
         await self._confirm_password()
         # get list
-        response_text = await self._response.text()
-        html = BeautifulSoup(response_text, "html.parser")
+        html = await self._get_parsed_response_html()
         token_elems = html.select(
             ".listgroup > .access-token > .listgroup-item"
         )
@@ -510,8 +495,7 @@ class AsyncGithubTokenClientSession:
             self.base_url
             + f"/settings/personal-access-tokens/{token_id}/expiration?page=1"
         )
-        response_text = await response.text()
-        html = BeautifulSoup(response_text, "html.parser")
+        html = await self._get_parsed_response_html(response)
         expires_str = html.get_text().strip()
         if any(
             expires_str.lower().startswith(x)
