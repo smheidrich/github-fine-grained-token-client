@@ -3,6 +3,7 @@
 """
 import asyncio
 from asyncio import Lock
+from collections.abc import Mapping
 from contextlib import asynccontextmanager
 from datetime import date, datetime, timedelta
 from functools import wraps
@@ -36,6 +37,48 @@ from .credentials import GithubCredentials
 from .utils.sequences import one_or_none
 
 default_logger = getLogger(__name__)
+
+ALL_PERMISSION_NAMES = [
+    "actions",
+    "administration",
+    "security_events",
+    "codespaces",
+    "codespaces_lifecycle_admin",
+    "codespaces_metadata",
+    "codespaces_secrets",
+    "statuses",
+    "contents",
+    "vulnerability_alerts",
+    "dependabot_secrets",
+    "deployments",
+    "discussions",
+    "environments",
+    "issues",
+    "merge_queues",
+    "metadata",
+    "pages",
+    "pull_requests",
+    "repository_announcement_banners",
+    "secret_scanning_alerts",
+    "secrets",
+    "actions_variables",
+    "repository_hooks",
+    "workflows",
+    "blocking",
+    "codespaces_user_secrets",
+    "emails",
+    "followers",
+    "gpg_keys",
+    "gists",
+    "keys",
+    "interaction_limits",
+    "plan",
+    "private_repository_invitations",
+    "profile",
+    "git_signing_ssh_public_keys",
+    "starring",
+    "watching",
+]
 
 
 @asynccontextmanager
@@ -153,9 +196,14 @@ class AsyncGithubTokenClientSession:
         response_text = await response.text()
         return BeautifulSoup(response_text, "html.parser")
 
-    async def _get_authenticity_token(self, html: BeautifulSoup) -> str:
+    def _get_authenticity_token(
+        self, html: BeautifulSoup, form_id: str | None = None
+    ) -> str:
+        selection_str = 'input[name="authenticity_token"]'
+        if form_id:
+            selection_str = f'form[id="{form_id}"] ' + selection_str
         authenticity_token = (
-            one_or_none(html.select('input[name="authenticity_token"]')) or {}
+            one_or_none(html.select(selection_str)) or {}
         ).get("value")
         if authenticity_token is None:
             raise UnexpectedContentError("no authenticity token found on page")
@@ -188,7 +236,7 @@ class AsyncGithubTokenClientSession:
                 "authenticity_token": authenticity_token,
             },
         )
-        if str(self.response.url).startswith(
+        if str(self._response.url).startswith(
             self.base_url.rstrip("/") + "/session"
         ):
             login_response_html = await self._get_parsed_response_html()
@@ -212,11 +260,11 @@ class AsyncGithubTokenClientSession:
             self.logger.info("password confirmation required")
         authenticity_token = self._get_authenticity_token(html)
         response = await self.http_session.post(
-            self.base_url.rstrip("/") + "/session",
+            html.form["action"],
             data={
                 "sudo_password": self.credentials.password,
                 "authenticity_token": authenticity_token,
-                "sudo_return_to": self.response.url,
+                "sudo_return_to": self._response.url,
                 "credential_type": "password",
             },
         )
@@ -245,6 +293,8 @@ class AsyncGithubTokenClientSession:
         description: str = "",
         resource_owner: str | None = None,
         scope: FineGrainedTokenScope = PublicRepositories(),
+        permissions: Mapping[str, str]
+        | None = None,  # TODO make dataclass or {str: enum}?
     ) -> str:
         """
         Create a new fine-grained token on GitHub.
@@ -257,6 +307,9 @@ class AsyncGithubTokenClientSession:
             resource_owner: Owner of the token to create. Defaults to whatever
                 GitHub selects by default (always logged-in user I guess).
             scope: The token's desired scope.
+            permissions: Permissions the token should have. Must be a mapping
+                from elements of ``ALL_PERMISSION_NAMES`` to ``"read"``,
+                ``"write"``, or an empty string.
 
         Returns:
             The created token.
@@ -264,92 +317,64 @@ class AsyncGithubTokenClientSession:
         # normalize args
         if isinstance(expires, timedelta):
             expires_date = date.today() + expires
+        if permissions is None:
+            permissions = {}
         # /normalize args
-        await self.page.goto(
-            self.base_url + "/settings/personal-access-tokens/new",
-            wait_until="domcontentloaded",
+        await self.http_session.get(
+            self.base_url.rstrip("/") + "/settings/personal-access-tokens/new"
         )
         # login if necessary
         await self._handle_login()
         # confirm password if necessary
         await self._confirm_password()
-        # fill in token name field
-        name_input = one_or_none(
-            await self.page.get_by_label("Token name").all()
+        # get dynamic form data
+        html = await self._get_parsed_response_html()
+        authenticity_token = self._get_authenticity_token(
+            html, form_id="new_user_programmatic_access"
         )
-        if name_input is None:
-            raise UnexpectedContentError("no token name field found on page")
-        await name_input.fill(name)
-        # set expiration date
-        # select custom date
-        (
-            expiration_select_input,
-            expiration_date_input,
-        ) = await self.page.get_by_label("Expiration").all()
-        await expiration_select_input.select_option(value="custom")
-        # set custom date
-        await expiration_date_input.wait_for(state="visible", timeout=5000)
-        await expiration_date_input.type(expires_date.strftime("%m%d%Y"))
-        # select token scope
+        # build form data & submit
         if isinstance(scope, PublicRepositories):
-            scope_label = "Public Repositories (read-only)"
+            install_target = "none"
+            repository_ids = []
         elif isinstance(scope, AllRepositories):
-            scope_label = "All repositories"
+            install_target = "all"
+            repository_ids = []
         elif isinstance(scope, SelectRepositories):
-            scope_label = "Only select repositories"
+            install_target = "selected"
+            repository_ids = scope.ids
         else:
-            raise TypeError(f"invalid token scope: {scope}")
-        scope_radio_button = one_or_none(
-            await self.page.get_by_label(scope_label).all()
-        )
-        if scope_radio_button is None:
-            raise UnexpectedContentError(
-                f"no scope radio button for label {scope_label!r} "
-                "found on page"
-            )
-        await scope_radio_button.click()
-        # with select repository scoped tokens, we have to select them from the
-        # dropdown menu that appears
-        if isinstance(scope, SelectRepositories):
-            select_repositories_dropdown_loc = self.page.locator(
-                "summary > span"
-            ).filter(has_text="Select repositories")
-            await select_repositories_dropdown_loc.wait_for(
-                state="visible", timeout=5000
-            )
-            select_repositories_dropdown = one_or_none(
-                await select_repositories_dropdown_loc.all()
-            )
-            if select_repositories_dropdown is None:
-                raise UnexpectedContentError(
-                    "no dropdown menu to select repositories from "
-                    "found on page"
-                )
-            await select_repositories_dropdown.click()
-            repo_search_input_loc = self.page.get_by_placeholder(
-                "Search for a repository"
-            )
-            await repo_search_input_loc.wait_for(state="visible", timeout=5000)
-            repo_search_input = one_or_none(await repo_search_input_loc.all())
-            if repo_search_input is None:
-                raise UnexpectedContentError(
-                    "no repository search input found on page"
-                )
-            for repo_name in scope.names:
-                await repo_search_input.type(repo_name)
-                repo_list = await self.page.locator(
-                    "#repository-menu-list > button"
-                ).all()
-                await asyncio.sleep(1000)  # TODO wait for list entries
-                if len(repo_list) > 1:
-                    raise NotImplementedError(
-                        "selecting one of multiple repos not yet implemented"
+            raise ValueError(f"invalid scope {scope}")
+        await self.http_session.post(
+            self.base_url.rstrip("/") + "/settings/personal-access-tokens",
+            data={
+                "authenticity_token": authenticity_token,
+                "user_programmatic_access[name]": name,
+                "user_programmatic_access[default_expires_at]": "custom",
+                "user_programmatic_access[custom_expires_at]": (
+                    expires_date.strftime("%Y-%m-%d")
+                ),
+                "user_programmatic_access[description]": description,
+                "target_name": self.credentials.username,  # TODO configurable
+                "install_target": install_target,
+                "repository_ids[]": repository_ids,
+                **{
+                    f"integration[default_permissions][{permission_name}]": (
+                        permissions.get(permission_name, "")
                     )
-                await repo_search_input.press("ArrowDown")
-                await repo_search_input.press("Enter")
-        await asyncio.sleep(20)
-        # TODO
-        return "not yet implemented"
+                    for permission_name in ALL_PERMISSION_NAMES
+                },
+            },
+        )
+        # confirm password again if necessary (rare but can happen)
+        # TODO unsure if we have to re-send the form data in this case...
+        await self._confirm_password()
+        # get value of newly created token
+        html = await self._get_parsed_response_html()
+        token_elem = one_or_none(html.select("#new-access-token"))
+        if token_elem is None:
+            raise UnexpectedContentError("no token value found on page")
+        token_value = token_elem["value"]
+        return token_value
 
     @_with_lock
     async def login(self) -> bool:

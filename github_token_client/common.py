@@ -55,8 +55,8 @@ class AllRepositories(FineGrainedTokenScope):
 
 @dataclass
 class SelectRepositories(FineGrainedTokenScope):
-    names: Sequence[str]
-    "Fully-qualified project names (i.e. ``user/project``)"
+    ids: Sequence[int]
+    "Repository IDs"
 
 
 @dataclass
