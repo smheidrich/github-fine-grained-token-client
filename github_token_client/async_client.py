@@ -153,6 +153,14 @@ class AsyncGithubTokenClientSession:
         response_text = await response.text()
         return BeautifulSoup(response_text, "html.parser")
 
+    async def _get_authenticity_token(self, html: BeautifulSoup) -> str:
+        authenticity_token = (
+            one_or_none(html.select('input[name="authenticity_token"]')) or {}
+        ).get("value")
+        if authenticity_token is None:
+            raise UnexpectedContentError("no authenticity token found on page")
+        return authenticity_token
+
     async def _handle_login(self) -> bool:
         """
         Automatically handle login if necessary, otherwise do nothing.
@@ -171,11 +179,7 @@ class AsyncGithubTokenClientSession:
         else:
             self.logger.info("login required")
         html = await self._get_parsed_response_html()
-        authenticity_token = (
-            one_or_none(html.select('input[name="authenticity_token"]')) or {}
-        ).get("value")
-        if authenticity_token is None:
-            raise UnexpectedContentError("no authenticity token found on page")
+        authenticity_token = self._get_authenticity_token(html)
         await self.http_session.post(
             self.base_url.rstrip("/") + "/session",
             data={
@@ -206,11 +210,7 @@ class AsyncGithubTokenClientSession:
             return
         else:
             self.logger.info("password confirmation required")
-        authenticity_token = (
-            one_or_none(html.select('input[name="authenticity_token"]')) or {}
-        ).get("value")
-        if authenticity_token is None:
-            raise UnexpectedContentError("no authenticity token found on page")
+        authenticity_token = self._get_authenticity_token(html)
         response = await self.http_session.post(
             self.base_url.rstrip("/") + "/session",
             data={
