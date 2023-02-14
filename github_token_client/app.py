@@ -110,6 +110,6 @@ class App:
     ) -> None:
         async def _run():
             async with self._logged_in_error_handling_session() as session:
-                await session.delete_token(name)
+                await session.delete_fine_grained_token(name)
 
         asyncio.run(_run())

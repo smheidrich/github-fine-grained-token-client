@@ -5,6 +5,7 @@ import asyncio
 from asyncio import Lock
 from collections.abc import Mapping
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from functools import wraps
 from logging import Logger, getLogger
@@ -79,6 +80,15 @@ ALL_PERMISSION_NAMES = [
     "starring",
     "watching",
 ]
+
+
+@dataclass
+class _FineGrainedTokenMinimalInternalInfo(FineGrainedTokenMinimalInfo):
+    """
+    Internally useful information on a fine-grained token from one request.
+    """
+
+    deletion_authenticity_token: str
 
 
 @asynccontextmanager
@@ -419,6 +429,16 @@ class AsyncGithubTokenClientSession:
     async def _get_fine_grained_tokens_minimal(
         self,
     ) -> Sequence[FineGrainedTokenMinimalInfo]:
+        return [
+            FineGrainedTokenMinimalInfo(
+                id=info.id, name=info.name, last_used_str=info.last_used_str
+            )
+            for info in await self._get_fine_grained_tokens_minimal_internal()
+        ]
+
+    async def _get_fine_grained_tokens_minimal_internal(
+        self,
+    ) -> Sequence[_FineGrainedTokenMinimalInternalInfo]:
         await self.http_session.get(
             self.base_url.rstrip("/") + "/settings/tokens?type=beta"
         )
@@ -441,8 +461,14 @@ class AsyncGithubTokenClientSession:
             )
             id_ = int(details_link["href"].split("/")[-1])
             name = details_link.get_text().strip()
-            entry = FineGrainedTokenMinimalInfo(
-                id=id_, name=name, last_used_str=last_used_str
+            deletion_authenticity_token = self._get_authenticity_token(
+                token_elem
+            )
+            entry = _FineGrainedTokenMinimalInternalInfo(
+                id=id_,
+                name=name,
+                last_used_str=last_used_str,
+                deletion_authenticity_token=deletion_authenticity_token,
             )
             token_list.append(entry)
         return token_list
@@ -563,69 +589,38 @@ class AsyncGithubTokenClientSession:
         ]
 
     @_with_lock
-    async def delete_token(self, name: str):
+    async def delete_fine_grained_token(self, name: str) -> None:
         """
-        Delete token on GitHub.
+        Delete fine-grained token from GitHub.
 
         Args:
             name: Name of the token to delete.
         """
-        await self.page.goto(
-            self.base_url + "/manage/account/",
-            wait_until="domcontentloaded",
+        # get list first because each has its own deletion authenticity token
+        info_by_name = {
+            info.name: info
+            for info in await self._get_fine_grained_tokens_minimal_internal()
+        }
+        if name not in info_by_name:
+            raise KeyError(f"no such token: {name!r}")
+        # delete
+        await self.http_session.post(
+            self.base_url.rstrip("/")
+            + f"/settings/personal-access-tokens/{info_by_name[name].id}",
+            data={
+                "_method": "delete",
+                "authenticity_token": (
+                    info_by_name[name].deletion_authenticity_token,
+                ),
+            },
         )
-        # login if necessary
-        await self._handle_login()
         # confirm password if necessary
         await self._confirm_password()
-        # get list
-        token_rows = await self.page.locator(
-            "#api-tokens > table > tbody > tr"
-        ).all()
-        for row in token_rows:
-            cols = await row.locator("th,td").all()
-            listed_name = await cols[0].inner_text()
-            if listed_name != name:
-                continue
-            options_button = one_or_none(
-                await cols[4]
-                .locator("nav > button")
-                .get_by_text("Options", exact=True)
-                .all()
-            )
-            if options_button is None:
-                raise UnexpectedContentError(
-                    "no options button found for token"
-                )
-            await options_button.click()
-            remove_button = (
-                cols[4].locator("nav a").get_by_text("Remove token")
-            )
-            await remove_button.wait_for(state="visible", timeout=5000)
-            await remove_button.click()
-            confirm_dialog_heading = self.page.get_by_text(
-                f"Remove API token - {name}", exact=True
-            )
-            confirm_dialog = self.page.locator(
-                'div[role="dialog"]', has=confirm_dialog_heading
-            )
-            await confirm_dialog.wait_for(state="visible", timeout=5000)
-            password_input = one_or_none(
-                await confirm_dialog.locator('input[type="password"]').all()
-            )
-            if password_input is None:
-                raise UnexpectedContentError("no password field found")
-            await password_input.fill(self.credentials.password)
-            async with self.page.expect_event(
-                "domcontentloaded"
-            ), self.page.expect_navigation():
-                self.logger.info(f"deleting token {name!r}...")
-                await password_input.press("Enter")
-            await self.page.get_by_text("Deleted API token").wait_for(
-                state="visible", timeout=5000
-            )
-            self.logger.info(f"deleted token {name!r}")
-            return
-        else:
-            self.logger.info(f"no token named {name} found. nothing to do")
-            return
+        # check that it worked
+        html = await self._get_parsed_response_html()
+        alert = html.select_one('div[role="alert"]')
+        if alert is None:
+            raise UnexpectedContentError("deletion result not found on page")
+        alert_text = alert.get_text().strip()
+        if not alert_text == "Deleted personal access token":
+            raise UnexpectedContentError("deletion failed: {alert_text!r}")
