@@ -68,42 +68,52 @@ def typer_callback(
 
 
 @cli_app.command()
-def create(
+def create_fine_grained(
     ctx: typer.Context,
     token_name: str = typer.Argument(..., help="name of the token"),
     project: str = typer.Option(
         None, help="project for which to generate token"
     ),
+    description: str = typer.Option("", help="token description"),
 ):
     """
-    Create a new token on GitHub
+    Create a new fine-grained token on GitHub
     """
     scope = (
         AllRepositories() if project is None else SelectRepositories([project])
     )
     app = _app_from_typer_state(ctx.obj)
-    app.create_token(token_name, scope)
-
-
-@cli_app.command("list")
-def list_tokens(ctx: typer.Context):
-    """
-    List tokens on GitHub
-    """
-    app = _app_from_typer_state(ctx.obj)
-    app.list_tokens()
+    app.create_token(token_name, scope, description)
 
 
 @cli_app.command()
-def delete(
+def list_fine_grained(ctx: typer.Context):
+    """
+    List fine-grained tokens on GitHub
+    """
+    app = _app_from_typer_state(ctx.obj)
+    app.list_fine_grained_tokens()
+
+
+@cli_app.command()
+def list_classic(ctx: typer.Context):
+    """
+    List classic tokens on GitHub
+    """
+    app = _app_from_typer_state(ctx.obj)
+    app.list_fine_grained_tokens()
+
+
+@cli_app.command()
+def delete_fine_grained(
     ctx: typer.Context,
     name: str = typer.Argument(..., help="name of token to delete"),
 ):
     """
-    Delete token on GitHub
+    Delete fine-grained token on GitHub
     """
     app = _app_from_typer_state(ctx.obj)
-    app.delete_token(name)
+    app.delete_fine_grained_token(name)
 
 
 def cli_main():

@@ -1,10 +1,14 @@
 import asyncio
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Sequence
 from contextlib import asynccontextmanager
+from dataclasses import fields
 from datetime import timedelta
 from itertools import count
 from pathlib import Path
 from pprint import pprint
+from typing import Any
+
+from yachalk import chalk
 
 from .async_client import (
     AsyncGithubTokenClientSession,
@@ -82,32 +86,56 @@ class App:
         yield
 
     def create_token(
-        self, token_name: str, scope: FineGrainedTokenScope
+        self,
+        token_name: str,
+        scope: FineGrainedTokenScope,
+        description: str = "",
     ) -> None:
         async def _run():
             async with self._logged_in_error_handling_session() as session:
                 token = await session.create_fine_grained_token(
-                    token_name, timedelta(days=364), "", None, scope
+                    token_name, timedelta(days=364), description, None, scope
                 )
             print("Created token:")
             print(token)
 
         asyncio.run(_run())
 
-    def list_tokens(self) -> None:
+    @classmethod
+    def _pretty_print_tokens(cls, tokens: Sequence[Any]) -> None:
+        """
+        Pretty-print tokens to standard output.
+
+        Args:
+            tokens: A sequence of token instances (any dataclass instance with
+                a name attribute will work).
+        """
+        for token in tokens:
+            print(chalk.bold(token.name))
+            print(
+                "\n".join(
+                    f"  {f.name}: {getattr(token, f.name)}"
+                    for f in fields(token)
+                )
+            )
+
+    def list_fine_grained_tokens(self) -> None:
         async def _run():
             async with self._logged_in_error_handling_session() as session:
-                classic_tokens = await session.get_classic_tokens()
-                fine_grained_tokens = await session.get_fine_grained_tokens()
-                tokens = classic_tokens + fine_grained_tokens
-            pprint(tokens)
+                tokens = await session.get_fine_grained_tokens()
+            self._pretty_print_tokens(tokens)
 
         asyncio.run(_run())
 
-    def delete_token(
-        self,
-        name: str,
-    ) -> None:
+    def list_classic_tokens(self) -> None:
+        async def _run():
+            async with self._logged_in_error_handling_session() as session:
+                tokens = await session.get_classic_tokens()
+            self._pretty_print_tokens(tokens)
+
+        asyncio.run(_run())
+
+    def delete_fine_grained_token(self, name: str) -> None:
         async def _run():
             async with self._logged_in_error_handling_session() as session:
                 await session.delete_fine_grained_token(name)

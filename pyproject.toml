@@ -19,9 +19,10 @@ python-dateutil = "^2.8.2"
 dateparser = "^1.1.6"
 beautifulsoup4 = "^4.11.1"
 aiohttp = {extras = ["all"], version = "^3.8.3"}
+yachalk = {version = "^0.1.5", optional = true}
 
 [tool.poetry.extras]
-cli = ["typer", "keyring"]
+cli = ["typer", "keyring", "yachalk"]
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^7.2.0"
