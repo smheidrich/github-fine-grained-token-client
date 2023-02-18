@@ -7,6 +7,7 @@ from collections.abc import Mapping
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
+from enum import Enum
 from functools import wraps
 from logging import Logger, getLogger
 from pathlib import Path
@@ -80,6 +81,12 @@ ALL_PERMISSION_NAMES = [
     "starring",
     "watching",
 ]
+
+
+class PermissionValue(Enum):
+    NONE = ""
+    READ = "read"
+    WRITE = "write"
 
 
 @dataclass
@@ -303,8 +310,7 @@ class AsyncGithubTokenClientSession:
         description: str = "",
         resource_owner: str | None = None,
         scope: FineGrainedTokenScope = PublicRepositories(),
-        permissions: Mapping[str, str]
-        | None = None,  # TODO make dataclass or {str: enum}?
+        permissions: Mapping[str, PermissionValue] | None = None,
     ) -> str:
         """
         Create a new fine-grained token on GitHub.
@@ -318,8 +324,7 @@ class AsyncGithubTokenClientSession:
                 GitHub selects by default (always logged-in user I guess).
             scope: The token's desired scope.
             permissions: Permissions the token should have. Must be a mapping
-                from elements of ``ALL_PERMISSION_NAMES`` to ``"read"``,
-                ``"write"``, or an empty string.
+                from elements of ``ALL_PERMISSION_NAMES`` to the desired value.
 
         Returns:
             The created token.
@@ -369,7 +374,9 @@ class AsyncGithubTokenClientSession:
                 "repository_ids[]": repository_ids,
                 **{
                     f"integration[default_permissions][{permission_name}]": (
-                        permissions.get(permission_name, "")
+                        permissions.get(
+                            permission_name, PermissionValue.NONE
+                        ).value
                     )
                     for permission_name in ALL_PERMISSION_NAMES
                 },

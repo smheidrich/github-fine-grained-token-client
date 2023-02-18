@@ -1,17 +1,18 @@
 import asyncio
-from collections.abc import AsyncIterator, Sequence
+from collections.abc import AsyncIterator, Mapping, Sequence
 from contextlib import asynccontextmanager
 from dataclasses import fields
 from datetime import timedelta
 from itertools import count
 from pathlib import Path
-from pprint import pprint
 from typing import Any
 
 from yachalk import chalk
 
 from .async_client import (
+    ALL_PERMISSION_NAMES,
     AsyncGithubTokenClientSession,
+    PermissionValue,
     async_github_token_client,
 )
 from .common import FineGrainedTokenScope, LoginError
@@ -85,21 +86,31 @@ class App:
         # TODO
         yield
 
-    def create_token(
+    def create_fine_grained_token(
         self,
         token_name: str,
         scope: FineGrainedTokenScope,
         description: str = "",
+        permissions: Mapping[str, PermissionValue] | None = None,
     ) -> None:
         async def _run():
             async with self._logged_in_error_handling_session() as session:
                 token = await session.create_fine_grained_token(
-                    token_name, timedelta(days=364), description, None, scope
+                    token_name,
+                    timedelta(days=364),
+                    description,
+                    None,
+                    scope,
+                    permissions,
                 )
             print("Created token:")
             print(token)
 
         asyncio.run(_run())
+
+    def list_possible_fine_grained_permissions(self) -> None:
+        for permission_name in ALL_PERMISSION_NAMES:
+            print(permission_name)
 
     @classmethod
     def _pretty_print_tokens(cls, tokens: Sequence[Any]) -> None:

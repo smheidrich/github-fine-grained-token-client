@@ -1,10 +1,16 @@
 import logging
 from dataclasses import dataclass
 from pathlib import Path
+from sys import stderr
 
 import typer
+from github_token_client.async_client import PermissionValue
 
-from github_token_client.common import AllRepositories, SelectRepositories
+from github_token_client.common import (
+    AllRepositories,
+    PublicRepositories,
+    SelectRepositories,
+)
 
 from .app import App
 
@@ -71,19 +77,85 @@ def typer_callback(
 def create_fine_grained(
     ctx: typer.Context,
     token_name: str = typer.Argument(..., help="name of the token"),
-    project: str = typer.Option(
-        None, help="project for which to generate token"
+    repositories: str = typer.Option(
+        None,
+        "--repositories",
+        "-r",
+        help="repositories for which the token should apply (comma-separated)",
+    ),
+    all_repositories: str = typer.Option(
+        False,
+        "--all-repositories",
+        "-a",
+        help="let token apply to all repositories "
+        "(mutually exclusive with --repositories)",
+    ),
+    read_permissions: str = typer.Option(
+        None,
+        "--read-permissions",
+        "-R",
+        help="operations for which to grant read permissions, "
+        "comma-separated (use the possible-fine-grained-permissions command "
+        "to get a list of possible values)",
+    ),
+    write_permissions: str = typer.Option(
+        None,
+        "--write-permissions",
+        "-W",
+        help="operations for which to grant read and write permissions, "
+        "comma-separated (use the possible-fine-grained-permissions command "
+        "to get a list of possible values)",
     ),
     description: str = typer.Option("", help="token description"),
 ):
     """
     Create a new fine-grained token on GitHub
     """
+    if repositories and all_repositories:
+        print(
+            "--repositories and --all-repositories are mutually exclusive",
+            file=stderr,
+        )
+        raise typer.Exit(1)
     scope = (
-        AllRepositories() if project is None else SelectRepositories([project])
+        AllRepositories()
+        if all_repositories
+        else (
+            PublicRepositories()
+            if repositories is None
+            else SelectRepositories(repositories.split(","))
+        )
     )
+    if isinstance(scope, SelectRepositories):
+        # TODO
+        raise NotImplementedError(
+            "select repositories currently only work with IDs... TODO fix"
+        )
+    permissions = {
+        **{
+            permission_name: PermissionValue.READ
+            for permission_name in (
+                read_permissions.split(",") if read_permissions else []
+            )
+        },
+        **{
+            permission_name: PermissionValue.WRITE
+            for permission_name in (
+                write_permissions.split(",") if write_permissions else []
+            )
+        },
+    }
     app = _app_from_typer_state(ctx.obj)
-    app.create_token(token_name, scope, description)
+    app.create_fine_grained_token(token_name, scope, description, permissions)
+
+
+@cli_app.command()
+def possible_fine_grained_permissions(ctx: typer.Context):
+    """
+    List fine-grained permissions that can be set when creating a token.
+    """
+    app = _app_from_typer_state(ctx.obj)
+    app.list_possible_fine_grained_permissions()
 
 
 @cli_app.command()
