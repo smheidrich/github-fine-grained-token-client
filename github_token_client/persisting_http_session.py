@@ -1,3 +1,4 @@
+from logging import Logger, getLogger
 from pathlib import Path
 from traceback import print_exc
 from typing import Type, TypeVar
@@ -8,6 +9,8 @@ from aiohttp import ClientSession, CookieJar
 cookies_filename = "cookies.pickle"
 
 T = TypeVar("T")
+
+default_logger = getLogger(__name__)
 
 
 class PersistingHttpClientSession:
@@ -22,6 +25,7 @@ class PersistingHttpClientSession:
         inner: ClientSession,
         persist_to: Path,
         create_parents: bool = True,
+        logger: Logger = default_logger,
     ):
         """
         Args:
@@ -36,6 +40,7 @@ class PersistingHttpClientSession:
         self.inner = inner
         self.persist_to = persist_to
         self.create_parents = create_parents
+        self.logger = logger
 
     @property
     def cookies_path(self) -> Path:
@@ -80,11 +85,13 @@ class PersistingHttpClientSession:
         self.inner.cookie_jar.save(self.cookies_path)
 
     async def get(self, *args, **kwargs):
+        self.logger.debug("GET: %r, %r", args, kwargs)
         response = await self.inner.get(*args, **kwargs)
         self.save()
         return response
 
     async def post(self, *args, **kwargs):
+        self.logger.debug("POST: %r, %r", args, kwargs)
         response = await self.inner.post(*args, **kwargs)
         self.save()
         return response

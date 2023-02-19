@@ -32,6 +32,7 @@ from .common import (
     FineGrainedTokenStandardInfo,
     LoginError,
     PublicRepositories,
+    RepositoryNotFoundError,
     SelectRepositories,
     UnexpectedContentError,
 )
@@ -275,15 +276,22 @@ class AsyncGithubTokenClientSession:
             return
         else:
             self.logger.info("password confirmation required")
-        authenticity_token = self._get_authenticity_token(html)
+        # TODO put this in helper method with form tree as arg
+        hidden_inputs = {
+            input_elem["name"]: input_elem["value"]
+            for input_elem in html.select('form input[type="hidden"]')
+        }
         response = await self.http_session.post(
-            html.form["action"],
+            (
+                form_action
+                if (form_action := html.form["action"]).startswith("https://")
+                else self.base_url.rstrip("/") + form_action
+            ),
             data={
                 "sudo_password": self.credentials.password,
-                "authenticity_token": authenticity_token,
-                "sudo_return_to": self._response.url,
-                "credential_type": "password",
+                **hidden_inputs,
             },
+            headers={"Referer": str(self.http_session.response.url)},
         )
         if str(response.url).startswith(
             self.base_url.rstrip("/") + "/session"
@@ -300,7 +308,27 @@ class AsyncGithubTokenClientSession:
             raise UnexpectedContentError(
                 "ended up back on login page but not sure why"
             )
-        return True
+
+    async def _get_repository_id(
+        self, target_name: str, repository_name: str
+    ) -> int:
+        await self.http_session.get(
+            self.base_url.rstrip("/")
+            + "/settings/personal-access-tokens/suggestions",
+            params={"target_name": target_name, "q": repository_name},
+        )
+        html = await self._get_parsed_response_html()
+        for button_elem in html.select("button"):
+            input_elem = one_or_none(button_elem.select("input"))
+            name_elem = one_or_none(
+                button_elem.select(".select-menu-item-text")
+            )
+            name = name_elem.contents[1][1:]
+            if name == repository_name:
+                return int(one_or_none(input_elem["value"]))
+        raise RepositoryNotFoundError(
+            f"no such repository: {target_name}/{repository_name}"
+        )
 
     @_with_lock
     async def create_fine_grained_token(
@@ -356,7 +384,11 @@ class AsyncGithubTokenClientSession:
             repository_ids = []
         elif isinstance(scope, SelectRepositories):
             install_target = "selected"
-            repository_ids = scope.ids
+            # fetch repo IDs given names
+            repository_ids = self._get_repository_id(
+                self.credentials.username,  # TODO configurable
+                scope.names,
+            )
         else:
             raise ValueError(f"invalid scope {scope}")
         await self.http_session.post(
@@ -611,17 +643,24 @@ class AsyncGithubTokenClientSession:
         if name not in info_by_name:
             raise KeyError(f"no such token: {name!r}")
         # delete
+        id_ = info_by_name[name].id
         await self.http_session.post(
             self.base_url.rstrip("/")
-            + f"/settings/personal-access-tokens/{info_by_name[name].id}",
+            + f"/settings/personal-access-tokens/{id_}",
             data={
                 "_method": "delete",
                 "authenticity_token": (
-                    info_by_name[name].deletion_authenticity_token,
+                    info_by_name[name].deletion_authenticity_token
                 ),
+            },
+            headers={
+                "Referer": (
+                    self.base_url.rstrip("/") + "/settings/tokens?type=beta"
+                )
             },
         )
         # confirm password if necessary
+        html = await self._get_parsed_response_html()
         await self._confirm_password()
         # check that it worked
         html = await self._get_parsed_response_html()
@@ -630,4 +669,4 @@ class AsyncGithubTokenClientSession:
             raise UnexpectedContentError("deletion result not found on page")
         alert_text = alert.get_text().strip()
         if not alert_text == "Deleted personal access token":
-            raise UnexpectedContentError("deletion failed: {alert_text!r}")
+            raise UnexpectedContentError(f"deletion failed: {alert_text!r}")

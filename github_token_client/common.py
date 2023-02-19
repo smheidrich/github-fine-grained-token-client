@@ -38,6 +38,10 @@ class TokenNameError(Exception):
     pass
 
 
+class RepositoryNotFoundError(Exception):
+    pass
+
+
 @dataclass
 class FineGrainedTokenScope:
     pass
@@ -55,8 +59,8 @@ class AllRepositories(FineGrainedTokenScope):
 
 @dataclass
 class SelectRepositories(FineGrainedTokenScope):
-    ids: Sequence[int]
-    "Repository IDs"
+    names: Sequence[str]
+    "Repository names"
 
 
 @dataclass

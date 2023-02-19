@@ -126,11 +126,6 @@ def create_fine_grained(
             else SelectRepositories(repositories.split(","))
         )
     )
-    if isinstance(scope, SelectRepositories):
-        # TODO
-        raise NotImplementedError(
-            "select repositories currently only work with IDs... TODO fix"
-        )
     permissions = {
         **{
             permission_name: PermissionValue.READ
