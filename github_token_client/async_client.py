@@ -323,9 +323,11 @@ class AsyncGithubTokenClientSession:
             name_elem = one_or_none(
                 button_elem.select(".select-menu-item-text")
             )
-            name = name_elem.contents[1][1:]
+            if name_elem is None:
+                continue
+            name = name_elem.contents[1].get_text()[1:]
             if name == repository_name:
-                return int(one_or_none(input_elem["value"]))
+                return int(input_elem["value"])
         raise RepositoryNotFoundError(
             f"no such repository: {target_name}/{repository_name}"
         )
@@ -385,10 +387,13 @@ class AsyncGithubTokenClientSession:
         elif isinstance(scope, SelectRepositories):
             install_target = "selected"
             # fetch repo IDs given names
-            repository_ids = self._get_repository_id(
-                self.credentials.username,  # TODO configurable
-                scope.names,
-            )
+            repository_ids = [
+                await self._get_repository_id(
+                    self.credentials.username,  # TODO configurable
+                    repository_name,
+                )
+                for repository_name in scope.names
+            ]
         else:
             raise ValueError(f"invalid scope {scope}")
         await self.http_session.post(

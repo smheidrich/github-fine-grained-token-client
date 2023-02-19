@@ -83,7 +83,7 @@ def create_fine_grained(
         "-r",
         help="repositories for which the token should apply (comma-separated)",
     ),
-    all_repositories: str = typer.Option(
+    all_repositories: bool = typer.Option(
         False,
         "--all-repositories",
         "-a",
