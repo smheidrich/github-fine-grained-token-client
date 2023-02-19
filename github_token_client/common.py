@@ -34,7 +34,15 @@ class TooManyAttemptsError(LoginError):
     pass
 
 
-class TokenNameError(Exception):
+class TokenCreationError(Exception):
+    pass
+
+
+class TokenNameError(TokenCreationError):
+    pass
+
+
+class TokenNameAlreadyTakenError(TokenNameError):
     pass
 
 

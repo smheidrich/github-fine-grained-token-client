@@ -34,6 +34,8 @@ from .common import (
     PublicRepositories,
     RepositoryNotFoundError,
     SelectRepositories,
+    TokenCreationError,
+    TokenNameAlreadyTakenError,
     UnexpectedContentError,
 )
 from .credentials import GithubCredentials
@@ -426,6 +428,12 @@ class AsyncGithubTokenClientSession:
         html = await self._get_parsed_response_html()
         token_elem = one_or_none(html.select("#new-access-token"))
         if token_elem is None:
+            error_elem = one_or_none(html.select(".error"))
+            if error_elem:
+                error = error_elem.get_text()
+                if "name has already been taken" in error.lower():
+                    raise TokenNameAlreadyTakenError(error.lower())
+                raise TokenCreationError(f"error creating token: {error}")
             raise UnexpectedContentError("no token value found on page")
         token_value = token_elem["value"]
         return token_value
