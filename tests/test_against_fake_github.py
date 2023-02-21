@@ -1,12 +1,13 @@
+import locale
 from dataclasses import dataclass
 from datetime import datetime
 from textwrap import dedent
 
 import aiohttp
-from aiohttp.web import Server
 import pytest
-from github_token_client.async_client import async_github_token_client
+from aiohttp.web import Server
 
+from github_token_client.async_client import async_github_token_client
 from github_token_client.common import (
     FineGrainedTokenMinimalInfo,
     FineGrainedTokenStandardInfo,
@@ -147,6 +148,20 @@ async def fake_github(aiohttp_server, credentials):
         page_html = f'<div class="listgroup">{tokens_html}</div>'
         return aiohttp.web.Response(text=page_html)
 
+    @routes.get("/settings/personal-access-tokens/{token_id}/expiration")
+    async def expiration(request):
+        if request.query["page"] != "1":
+            return aiohttp.web.HTTPNotFound()
+        token_id = int(request.match_info["token_id"])
+        token = {token.id: token for token in state.fine_grained_tokens}[
+            token_id
+        ]
+        locale.setlocale(locale.LC_ALL, "C")
+        expiration_str = token.expires.strftime("%a, %b %d %Y")
+        return aiohttp.web.Response(
+            text=f"Expires <span>on {expiration_str}</span>"
+        )
+
     app = aiohttp.web.Application()
     app.add_routes(routes)
     return FakeGitHub(state, await aiohttp_server(app))
@@ -183,6 +198,7 @@ async def test_wrong_password(fake_github, credentials):
 
 
 async def test_get_fine_grained_tokens_minimal(fake_github, credentials):
+    # TODO this is not correct from type perspective => better minimize result
     fake_github.state.fine_grained_tokens = [
         FineGrainedTokenMinimalInfo(
             id=123,
@@ -195,4 +211,13 @@ async def test_get_fine_grained_tokens_minimal(fake_github, credentials):
         base_url=str(fake_github.server.make_url("/")),
     ) as client:
         tokens = await client.get_fine_grained_tokens_minimal()
+        assert tokens == fake_github.state.fine_grained_tokens
+
+
+async def test_get_fine_grained_tokens(fake_github, credentials):
+    async with async_github_token_client(
+        credentials,
+        base_url=str(fake_github.server.make_url("/")),
+    ) as client:
+        tokens = await client.get_fine_grained_tokens()
         assert tokens == fake_github.state.fine_grained_tokens

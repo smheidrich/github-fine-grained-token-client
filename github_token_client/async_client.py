@@ -595,7 +595,7 @@ class AsyncGithubTokenClientSession:
     ) -> datetime:
         # NOTE: no lock (efficiency)! => don't rely on self._response
         response = await self.http_session.get(
-            self.base_url
+            self.base_url.rstrip("/")
             + f"/settings/personal-access-tokens/{token_id}/expiration?page=1"
         )
         html = await self._get_parsed_response_html(response)
