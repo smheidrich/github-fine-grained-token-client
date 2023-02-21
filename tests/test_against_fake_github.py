@@ -162,6 +162,27 @@ async def fake_github(aiohttp_server, credentials):
             text=f"Expires <span>on {expiration_str}</span>"
         )
 
+    @routes.post("/settings/personal-access-tokens/{token_id}")
+    async def delete(request):
+        token_id = int(request.match_info["token_id"])
+        data = await request.post()
+        if (
+            data["_method"] != "delete"
+            or data["authenticity_token"]
+            != f"authenticity-token-del-{token_id}"
+        ):
+            # real response is "your browser did sth weird" but anyway...
+            return aiohttp.web.HTTPNotFound()
+        for i, token in enumerate(state.fine_grained_tokens):
+            if token.id == token_id:
+                del state.fine_grained_tokens[i]
+                break
+        else:
+            return aiohttp.web.HTTPNotFound()
+        return aiohttp.web.Response(
+            text='<div role="alert">Deleted personal access token</div>'
+        )
+
     app = aiohttp.web.Application()
     app.add_routes(routes)
     return FakeGitHub(state, await aiohttp_server(app))
@@ -221,3 +242,13 @@ async def test_get_fine_grained_tokens(fake_github, credentials):
     ) as client:
         tokens = await client.get_fine_grained_tokens()
         assert tokens == fake_github.state.fine_grained_tokens
+
+
+async def test_delete_fine_grained_tokens(fake_github, credentials):
+    async with async_github_token_client(
+        credentials,
+        base_url=str(fake_github.server.make_url("/")),
+    ) as client:
+        await client.delete_fine_grained_token("existing token")
+        tokens = await client.get_fine_grained_tokens()
+        assert tokens == []
