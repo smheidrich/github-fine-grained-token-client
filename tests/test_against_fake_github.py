@@ -1,11 +1,17 @@
 from dataclasses import dataclass
+from datetime import datetime
 from textwrap import dedent
 
 import aiohttp
+from aiohttp.web import Server
 import pytest
 from github_token_client.async_client import async_github_token_client
 
-from github_token_client.common import FineGrainedTokenStandardInfo, LoginError
+from github_token_client.common import (
+    FineGrainedTokenMinimalInfo,
+    FineGrainedTokenStandardInfo,
+    LoginError,
+)
 from github_token_client.credentials import GithubCredentials
 
 
@@ -15,9 +21,25 @@ class GithubState:
     fine_grained_tokens: list[FineGrainedTokenStandardInfo]  # TODO more info
 
 
+@dataclass
+class FakeGitHub:
+    state: GithubState
+    server: Server
+
+
 @pytest.fixture
 async def fake_github(aiohttp_server, credentials):
-    state = GithubState(credentials, [])
+    state = GithubState(
+        credentials,
+        [
+            FineGrainedTokenStandardInfo(
+                id=123,
+                name="existing token",
+                last_used_str="never used",
+                expires=datetime(2023, 3, 3),
+            )
+        ],
+    )
     routes = aiohttp.web.RouteTableDef()
 
     @routes.get("/login")
@@ -66,9 +88,68 @@ async def fake_github(aiohttp_server, credentials):
         response.set_cookie("logged-in", "true")
         return response
 
+    @routes.get("/settings/tokens")
+    async def fine_grained_tokens(request):
+        if request.query["type"] != "beta":
+            return aiohttp.web.HTTPNotFound()
+        token_htmls = [
+            f"""
+            <div id="access-token-{token.id}"
+                class="access-token" data-id="{token.id}"
+                data-type="token"
+            >
+              <div class="listgroup-item">
+                <div class="d-flex float-right">
+                  <details>
+                      <summary>Delete</summary>
+                      <details-dialog aria-label="Confirm token deletion">
+                          <div class="Box-footer">
+                          </option></form><!-- no idea what this is for -->
+                          <form
+                              action="/settings/personal-access-tokens/446727"
+                              accept-charset="UTF-8" method="post"
+                          >
+                              <input type="hidden" name="_method"
+                                  value="delete"
+                              />
+                              <input type="hidden" name="authenticity_token"
+                                  value="authenticity-token-del-{token.id}" />
+                          </form>
+                          </div>
+                      </details-dialog>
+                  </details>
+                </div>
+
+                <small class="last-used float-right">
+                    {token.last_used_str}
+                </small>
+                <div class="token-description">
+                    <strong class="f5">
+                        <a href="/settings/personal-access-tokens/{token.id}">
+                            {token.name}
+                        </a>
+                    </strong>
+                </div>
+                <div>
+                  <include-fragment
+                      src="/settings/personal-access-tokens/{token.id}/expiration?page=1"
+                  >
+                    <span>Loading expiration ...</span>
+                    <p hidden>Sorry, something went wrong.</p>
+                  </include-fragment>
+                </div>
+              </div>
+            </div>
+            """
+            for token in state.fine_grained_tokens
+        ]
+        tokens_html = "\n\n".join(token_htmls)
+        page_html = f'<div class="listgroup">{tokens_html}</div>'
+        return aiohttp.web.Response(text=page_html)
+
     app = aiohttp.web.Application()
     app.add_routes(routes)
-    return await aiohttp_server(app)
+    return FakeGitHub(state, await aiohttp_server(app))
 
 
 @pytest.fixture
@@ -78,7 +159,7 @@ def credentials():
 
 async def test_login(fake_github, credentials):
     async with async_github_token_client(
-        credentials, base_url=str(fake_github.make_url("/"))
+        credentials, base_url=str(fake_github.server.make_url("/"))
     ) as client:
         await client.login()
 
@@ -86,7 +167,7 @@ async def test_login(fake_github, credentials):
 async def test_wrong_username(fake_github):
     async with async_github_token_client(
         GithubCredentials("wronguser", "wrongpw"),
-        base_url=str(fake_github.make_url("/")),
+        base_url=str(fake_github.server.make_url("/")),
     ) as client:
         with pytest.raises(LoginError):
             await client.login()
@@ -95,7 +176,23 @@ async def test_wrong_username(fake_github):
 async def test_wrong_password(fake_github, credentials):
     async with async_github_token_client(
         GithubCredentials(credentials.username, "wrongpw"),
-        base_url=str(fake_github.make_url("/")),
+        base_url=str(fake_github.server.make_url("/")),
     ) as client:
         with pytest.raises(LoginError):
             await client.login()
+
+
+async def test_get_fine_grained_tokens_minimal(fake_github, credentials):
+    fake_github.state.fine_grained_tokens = [
+        FineGrainedTokenMinimalInfo(
+            id=123,
+            name="existing token",
+            last_used_str="never used",
+        )
+    ]
+    async with async_github_token_client(
+        credentials,
+        base_url=str(fake_github.server.make_url("/")),
+    ) as client:
+        tokens = await client.get_fine_grained_tokens_minimal()
+        assert tokens == fake_github.state.fine_grained_tokens
