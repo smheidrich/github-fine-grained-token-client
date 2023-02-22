@@ -281,8 +281,7 @@ async def test_delete_fine_grained_tokens(fake_github, credentials):
         base_url=str(fake_github.server.make_url("/")),
     ) as client:
         await client.delete_fine_grained_token("existing token")
-        tokens = await client.get_fine_grained_tokens()
-        assert tokens == []
+    assert fake_github.state.fine_grained_tokens == []
 
 
 # TODO test permissions etc. as well => access state directly instead of fetch
@@ -295,6 +294,6 @@ async def test_create_fine_grained_tokens(fake_github, credentials):
         expires = datetime(2023, 2, 5)
         description = "some description"
         await client.create_fine_grained_token(name, expires, description)
-        tokens = await client.get_fine_grained_tokens()
-        new_token_info = [token for token in tokens if token.name == name][0]
-        assert new_token_info.expires == expires
+    new_token_info = fake_github.state.fine_grained_tokens[-1]
+    assert new_token_info.name == name
+    assert new_token_info.expires == expires
