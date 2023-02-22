@@ -362,8 +362,11 @@ class AsyncGithubTokenClientSession:
             The created token.
         """
         # normalize args
-        if isinstance(expires, timedelta):
-            expires_date = date.today() + expires
+        expires_date = (
+            date.today() + expires
+            if isinstance(expires, timedelta)
+            else expires
+        )
         if permissions is None:
             permissions = {}
         # /normalize args

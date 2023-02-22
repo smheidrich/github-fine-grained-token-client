@@ -4,6 +4,7 @@ from datetime import datetime
 from textwrap import dedent
 
 import aiohttp
+import dateparser
 import pytest
 from aiohttp.web import Server
 
@@ -183,6 +184,36 @@ async def fake_github(aiohttp_server, credentials):
             text='<div role="alert">Deleted personal access token</div>'
         )
 
+    @routes.get("/settings/personal-access-tokens/new")
+    async def create_token_page(request):
+        return aiohttp.web.Response(
+            text="""
+            <form id="new_user_programmatic_access">
+                <input name="authenticity_token"
+                    value="new-token-authenticity-token"
+                />
+            </form>
+            """
+        )
+
+    @routes.post("/settings/personal-access-tokens")
+    async def create_token_call(request):
+        data = await request.post()
+        # TODO also validate other data
+        state.fine_grained_tokens.append(
+            FineGrainedTokenStandardInfo(
+                max(t.id for t in state.fine_grained_tokens) + 1,
+                data["user_programmatic_access[name]"],
+                "Never used",
+                dateparser.parse(
+                    data["user_programmatic_access[custom_expires_at]"]
+                ),
+            )
+        )
+        return aiohttp.web.Response(
+            text='<span id="new-access-token" value="new-token-value"></span>'
+        )
+
     app = aiohttp.web.Application()
     app.add_routes(routes)
     return FakeGitHub(state, await aiohttp_server(app))
@@ -252,3 +283,18 @@ async def test_delete_fine_grained_tokens(fake_github, credentials):
         await client.delete_fine_grained_token("existing token")
         tokens = await client.get_fine_grained_tokens()
         assert tokens == []
+
+
+# TODO test permissions etc. as well => access state directly instead of fetch
+async def test_create_fine_grained_tokens(fake_github, credentials):
+    async with async_github_token_client(
+        credentials,
+        base_url=str(fake_github.server.make_url("/")),
+    ) as client:
+        name = "new token"
+        expires = datetime(2023, 2, 5)
+        description = "some description"
+        await client.create_fine_grained_token(name, expires, description)
+        tokens = await client.get_fine_grained_tokens()
+        new_token_info = [token for token in tokens if token.name == name][0]
+        assert new_token_info.expires == expires
