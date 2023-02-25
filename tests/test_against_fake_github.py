@@ -1,12 +1,14 @@
 import locale
 from dataclasses import dataclass
 from datetime import datetime
+from functools import wraps
 from textwrap import dedent
 
 import aiohttp
 import dateparser
 import pytest
 from aiohttp.web import Server
+from yarl import URL
 
 from github_token_client.async_client import async_github_token_client
 from github_token_client.common import (
@@ -28,6 +30,15 @@ class FakeGitHub:
     state: GithubState
     server: Server
 
+    @property
+    def base_url(self) -> str:
+        return make_base_url(self.server)
+
+
+def make_base_url(server) -> str:
+    # shitty hack: localhost instead of IP to allow cookies
+    return str(server.make_url("/")).replace("127.0.0.1", "localhost")
+
 
 @pytest.fixture
 async def fake_github(aiohttp_server, credentials):
@@ -44,11 +55,36 @@ async def fake_github(aiohttp_server, credentials):
     )
     routes = aiohttp.web.RouteTableDef()
 
+    def login_redirect_if_not_logged_in(request):
+        if request.cookies.get("logged-in") != "true":
+            return aiohttp.web.HTTPFound(
+                URL("/login").with_query(return_to=str(request.url))
+            )
+        return None
+
+    def auto_login_redirect_if_not_logged_in(func):
+        """
+        Decorator to use the above automatically.
+        """
+
+        @wraps(func)
+        async def new_func(request):
+            if redirect := login_redirect_if_not_logged_in(request):
+                return redirect
+            return await func(request)
+
+        return new_func
+
     @routes.get("/login")
     async def login(request):
+        if request.cookies.get("logged-in") == "true":
+            return aiohttp.web.HTTPFound("/")
+        return_to = request.query.get("return_to") or request.url.with_path(
+            "/login"
+        )
         return aiohttp.web.Response(
             text=dedent(
-                """
+                f"""
                 <form action="/session" accept-charset="UTF-8" method="post">
                 <input type="hidden" name="authenticity_token"
                     value="authenticity-token"
@@ -56,7 +92,7 @@ async def fake_github(aiohttp_server, credentials):
                 <input type="text" name="login"/>
                 <input type="password" name="password" />
                 <input type="hidden" name="return_to"
-                    value="https://github.com/login"
+                    value="{return_to}"
                 />
                 </form>
                 """
@@ -86,11 +122,18 @@ async def fake_github(aiohttp_server, credentials):
                     """
                 )
             )
-        response = aiohttp.web.HTTPFound("/")
+        data = await request.post()
+        destination = data.get("return_to")
+        response = aiohttp.web.HTTPFound(str(destination or "/"))
         response.set_cookie("logged-in", "true")
         return response
 
+    @routes.get("/")
+    async def home(request):
+        return aiohttp.web.Response(text="welcome to github")
+
     @routes.get("/settings/tokens")
+    @auto_login_redirect_if_not_logged_in
     async def fine_grained_tokens(request):
         if request.query["type"] != "beta":
             return aiohttp.web.HTTPNotFound()
@@ -185,6 +228,7 @@ async def fake_github(aiohttp_server, credentials):
         )
 
     @routes.get("/settings/personal-access-tokens/new")
+    @auto_login_redirect_if_not_logged_in
     async def create_token_page(request):
         return aiohttp.web.Response(
             text="""
@@ -226,7 +270,8 @@ def credentials():
 
 async def test_login(fake_github, credentials):
     async with async_github_token_client(
-        credentials, base_url=str(fake_github.server.make_url("/"))
+        credentials,
+        base_url=fake_github.base_url,
     ) as client:
         await client.login()
 
@@ -234,7 +279,7 @@ async def test_login(fake_github, credentials):
 async def test_wrong_username(fake_github):
     async with async_github_token_client(
         GithubCredentials("wronguser", "wrongpw"),
-        base_url=str(fake_github.server.make_url("/")),
+        base_url=fake_github.base_url,
     ) as client:
         with pytest.raises(LoginError):
             await client.login()
@@ -243,7 +288,7 @@ async def test_wrong_username(fake_github):
 async def test_wrong_password(fake_github, credentials):
     async with async_github_token_client(
         GithubCredentials(credentials.username, "wrongpw"),
-        base_url=str(fake_github.server.make_url("/")),
+        base_url=fake_github.base_url,
     ) as client:
         with pytest.raises(LoginError):
             await client.login()
@@ -260,7 +305,7 @@ async def test_get_fine_grained_tokens_minimal(fake_github, credentials):
     ]
     async with async_github_token_client(
         credentials,
-        base_url=str(fake_github.server.make_url("/")),
+        base_url=fake_github.base_url,
     ) as client:
         tokens = await client.get_fine_grained_tokens_minimal()
         assert tokens == fake_github.state.fine_grained_tokens
@@ -269,7 +314,7 @@ async def test_get_fine_grained_tokens_minimal(fake_github, credentials):
 async def test_get_fine_grained_tokens(fake_github, credentials):
     async with async_github_token_client(
         credentials,
-        base_url=str(fake_github.server.make_url("/")),
+        base_url=fake_github.base_url,
     ) as client:
         tokens = await client.get_fine_grained_tokens()
         assert tokens == fake_github.state.fine_grained_tokens
@@ -278,7 +323,7 @@ async def test_get_fine_grained_tokens(fake_github, credentials):
 async def test_delete_fine_grained_tokens(fake_github, credentials):
     async with async_github_token_client(
         credentials,
-        base_url=str(fake_github.server.make_url("/")),
+        base_url=fake_github.base_url,
     ) as client:
         await client.delete_fine_grained_token("existing token")
     assert fake_github.state.fine_grained_tokens == []
@@ -288,7 +333,7 @@ async def test_delete_fine_grained_tokens(fake_github, credentials):
 async def test_create_fine_grained_tokens(fake_github, credentials):
     async with async_github_token_client(
         credentials,
-        base_url=str(fake_github.server.make_url("/")),
+        base_url=make_base_url(fake_github.server),
     ) as client:
         name = "new token"
         expires = datetime(2023, 2, 5)

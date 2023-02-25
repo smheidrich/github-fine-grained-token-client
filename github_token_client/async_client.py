@@ -37,6 +37,7 @@ from .common import (
     TokenCreationError,
     TokenNameAlreadyTakenError,
     UnexpectedContentError,
+    UnexpectedPageError,
 )
 from .credentials import GithubCredentials
 from .utils.sequences import one_or_none
@@ -124,7 +125,7 @@ async def async_github_token_client(
     Returns:
       A context manager for the async session.
     """
-    async with aiohttp.ClientSession() as http_session:
+    async with aiohttp.ClientSession(raise_for_status=True) as http_session:
         yield AsyncGithubTokenClientSession.make_with_cookies_loaded(
             http_session, credentials, persist_to, base_url, logger
         )
@@ -246,14 +247,18 @@ class AsyncGithubTokenClientSession:
             return False
         else:
             self.logger.info("login required")
+        destination_url = response.url.query.get("return_to")
         html = await self._get_parsed_response_html()
-        authenticity_token = self._get_authenticity_token(html)
+        hidden_inputs = {
+            input_elem["name"]: input_elem["value"]
+            for input_elem in html.select('form input[type="hidden"]')
+        }
         await self.http_session.post(
             self.base_url.rstrip("/") + "/session",
             data={
                 "login": self.credentials.username,
                 "password": self.credentials.password,
-                "authenticity_token": authenticity_token,
+                **hidden_inputs,
             },
         )
         if str(self._response.url).startswith(
@@ -267,6 +272,14 @@ class AsyncGithubTokenClientSession:
                 raise LoginError(login_error.get_text().strip())
             raise UnexpectedContentError(
                 "ended up back on login page but not sure why"
+            )
+        if (
+            destination_url is not None
+            and str(self._response.url) != destination_url
+        ):
+            raise UnexpectedPageError(
+                f"ended up on unexpected page {self._response.url} after login"
+                f" (expected {destination_url})"
             )
         return True
 
