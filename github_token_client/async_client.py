@@ -299,7 +299,10 @@ class AsyncGithubTokenClientSession:
         response = await self.http_session.post(
             (
                 form_action
-                if (form_action := html.form["action"]).startswith("https://")
+                if any(
+                    (form_action := html.form["action"]).startswith(scheme)
+                    for scheme in ["https://", "http://"]
+                )
                 else self.base_url.rstrip("/") + form_action
             ),
             data={
@@ -309,7 +312,7 @@ class AsyncGithubTokenClientSession:
             headers={"Referer": str(self.http_session.response.url)},
         )
         if str(response.url).startswith(
-            self.base_url.rstrip("/") + "/session"
+            self.base_url.rstrip("/") + "/sessions/sudo"
         ):
             login_response_text = await response.text()
             login_response_html = BeautifulSoup(
@@ -516,6 +519,9 @@ class AsyncGithubTokenClientSession:
         await self._confirm_password()
         # get list
         html = await self._get_parsed_response_html()
+        listgroup_elem = one_or_none(html.select(".listgroup"))
+        if not listgroup_elem:
+            raise UnexpectedContentError("no token list found on page")
         token_elems = html.select(
             ".listgroup > .access-token > .listgroup-item"
         )

@@ -41,7 +41,12 @@ def make_base_url(server) -> str:
 
 
 @pytest.fixture
-async def fake_github(aiohttp_server, credentials):
+async def fake_github(aiohttp_server, credentials, request):
+    # don't get confused: the above request param is a special pytest fixture,
+    # while the ones in the functions below are standard aiohttp params
+    password_confirmation_required_for = getattr(request, "param", {}).get(
+        "password_confirmation", set()
+    )
     state = GithubState(
         credentials,
         [
@@ -54,13 +59,14 @@ async def fake_github(aiohttp_server, credentials):
         ],
     )
     routes = aiohttp.web.RouteTableDef()
+    server: aiohttp.test_utils.BaseServer | None = None
 
     def login_redirect_if_not_logged_in(request):
-        if request.cookies.get("logged-in") != "true":
-            return aiohttp.web.HTTPFound(
-                URL("/login").with_query(return_to=str(request.url))
-            )
-        return None
+        if request.cookies.get("logged-in") == "true":
+            return None
+        return aiohttp.web.HTTPFound(
+            URL("/login").with_query(return_to=str(request.url))
+        )
 
     def auto_login_redirect_if_not_logged_in(func):
         """
@@ -72,6 +78,128 @@ async def fake_github(aiohttp_server, credentials):
             if redirect := login_redirect_if_not_logged_in(request):
                 return redirect
             return await func(request)
+
+        return new_func
+
+    def password_confirmation_prompt_if_not_confirmed(
+        request,
+    ) -> aiohttp.web.Response | None:
+        if request.cookies.get("password-confirmed") == "true":
+            return None
+        base_url = make_base_url(server).rstrip("/")
+        referrer = request.headers.get("Referer", "")
+        request_url = str(request.url)
+        return aiohttp.web.Response(
+            text=dedent(
+                f"""
+                <div id="sudo">
+                <div>
+                <h1>Confirm password</h1>
+                <form action="{base_url}/sessions/sudo" method="post">
+                    <input type="hidden" name="authenticity_token"
+                        value="confirm-pw-authenticity-token">
+                    <input type="hidden" name="sudo_referrer"
+                        value="{referrer}">
+                    <input type="hidden" name="sudo_return_to"
+                        value="{request_url}">
+                    <input type="hidden" name="credential_type"
+                        value="password">
+                    <input type="password" name="sudo_password">
+                </form>
+                </div>
+                </div>
+                """
+            )
+        )
+
+    def dedicated_password_confirmation(func):
+        """
+        Decorator for endpoints that let the sudo endpoint check the password.
+
+        Will only redirect if the password hasn't been confirmed yet.
+
+        The sudo endpoint redirects to the original target page if the password
+        was correct. This kind of password confirmation is only used for GET
+        requests, otherwise the redirect makes no sense.
+        """
+
+        @wraps(func)
+        async def new_func(request):
+            if (
+                request.url.path in password_confirmation_required_for
+                and (
+                    response := password_confirmation_prompt_if_not_confirmed(
+                        request
+                    )
+                )
+                is not None
+            ):
+                return response
+            return await func(request)
+
+        return new_func
+
+    def embedded_password_confirmation(func):
+        """
+        Decorator for endpoints that themselves accept password confirm data.
+
+        Unlike the sudo endpoint, these will also perform their actual action
+        after the password has been confirmed, without a redirect. They work a
+        bit differently because they have to forward the data sent with the
+        original request and are only used for POST endpoints.
+        """
+        # TODO refactor: extract parts shared with
+        # dedicated_password_confirmation,
+        # password_confirmation_prompt_if_not_confirmed and the sudo endpoint
+
+        @wraps(func)
+        async def new_func(request):
+            if request.cookies.get("password-confirmed") == "true":
+                return await func(request)
+            data = await request.post()
+            url = str(request.url)
+            if "sudo_password" not in data:
+                input_elem_strs = "\n".join(
+                    f'<input type="hidden" name="{k}" value="{v}">'
+                    for k, v in data.items()
+                )
+                referrer = request.headers.get("Referer", "")
+                return aiohttp.web.Response(
+                    text=dedent(
+                        f"""
+                        <div id="sudo">
+                        <div>
+                        <h1>Confirm password</h1>
+                        <form action="{url}" method="post">
+                            {input_elem_strs}
+                            <input type="hidden" name="sudo_referrer"
+                                value="{referrer}">
+                            <input type="hidden" name="credential_type"
+                                value="password">
+                            <input type="password" name="sudo_password">
+                        </form>
+                        </div>
+                        </div>
+                        """
+                    )
+                )
+            # TODO in reality, the authenticity token is different for each
+            # step, but not sure how to simulate that easily...
+            # if data["authenticity_token"] != "confirm-pw-authenticity-token":
+            # return aiohttp.web.BadRequest("incorrect authenticity token")
+            if data["sudo_password"] != credentials.password:
+                return aiohttp.web.Response(
+                    text=dedent(
+                        """
+                        <div id="js-flash-container">
+                            Incorrect username or password.
+                        </div>
+                        """
+                    )
+                )
+            response = await func(request)
+            response.set_cookie("password-confirmed", "true")
+            return response
 
         return new_func
 
@@ -128,12 +256,32 @@ async def fake_github(aiohttp_server, credentials):
         response.set_cookie("logged-in", "true")
         return response
 
+    @routes.post("/sessions/sudo")
+    async def sudo(request):
+        data = await request.post()
+        if data["authenticity_token"] != "confirm-pw-authenticity-token":
+            return aiohttp.web.BadRequest("incorrect authenticity token")
+        if data["sudo_password"] != credentials.password:
+            return aiohttp.web.Response(
+                text=dedent(
+                    """
+                    <div id="js-flash-container">
+                        Incorrect username or password.
+                    </div>
+                    """
+                )
+            )
+        response = aiohttp.web.HTTPFound(data["sudo_return_to"])
+        response.set_cookie("password-confirmed", "true")
+        return response
+
     @routes.get("/")
     async def home(request):
         return aiohttp.web.Response(text="welcome to github")
 
     @routes.get("/settings/tokens")
     @auto_login_redirect_if_not_logged_in
+    @dedicated_password_confirmation
     async def fine_grained_tokens(request):
         if request.query["type"] != "beta":
             return aiohttp.web.HTTPNotFound()
@@ -207,6 +355,7 @@ async def fake_github(aiohttp_server, credentials):
         )
 
     @routes.post("/settings/personal-access-tokens/{token_id}")
+    @embedded_password_confirmation
     async def delete(request):
         token_id = int(request.match_info["token_id"])
         data = await request.post()
@@ -229,6 +378,7 @@ async def fake_github(aiohttp_server, credentials):
 
     @routes.get("/settings/personal-access-tokens/new")
     @auto_login_redirect_if_not_logged_in
+    @dedicated_password_confirmation
     async def create_token_page(request):
         return aiohttp.web.Response(
             text="""
@@ -260,7 +410,8 @@ async def fake_github(aiohttp_server, credentials):
 
     app = aiohttp.web.Application()
     app.add_routes(routes)
-    return FakeGitHub(state, await aiohttp_server(app))
+    server = await aiohttp_server(app)
+    return FakeGitHub(state, server)
 
 
 @pytest.fixture
@@ -294,6 +445,11 @@ async def test_wrong_password(fake_github, credentials):
             await client.login()
 
 
+@pytest.mark.parametrize(
+    "fake_github",
+    [{}, {"password_confirmation": {"/settings/tokens"}}],
+    indirect=True,
+)
 async def test_get_fine_grained_tokens_minimal(fake_github, credentials):
     # TODO this is not correct from type perspective => better minimize result
     fake_github.state.fine_grained_tokens = [
@@ -320,6 +476,11 @@ async def test_get_fine_grained_tokens(fake_github, credentials):
         assert tokens == fake_github.state.fine_grained_tokens
 
 
+@pytest.mark.parametrize(
+    "fake_github",
+    [{}, {"password_confirmation": {"/settings/personal-access-tokens/123"}}],
+    indirect=True,
+)
 async def test_delete_fine_grained_tokens(fake_github, credentials):
     async with async_github_token_client(
         credentials,
@@ -330,6 +491,11 @@ async def test_delete_fine_grained_tokens(fake_github, credentials):
 
 
 # TODO test permissions etc. as well => access state directly instead of fetch
+@pytest.mark.parametrize(
+    "fake_github",
+    [{}, {"password_confirmation": {"/settings/personal-access-tokens/new"}}],
+    indirect=True,
+)
 async def test_create_fine_grained_tokens(fake_github, credentials):
     async with async_github_token_client(
         credentials,
