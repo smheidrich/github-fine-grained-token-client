@@ -1,8 +1,11 @@
 import locale
-from dataclasses import dataclass
+from collections import ChainMap
+from dataclasses import dataclass, field
 from datetime import datetime
 from functools import wraps
+from logging import getLogger
 from textwrap import dedent
+from uuid import uuid4
 
 import aiohttp
 import dateparser
@@ -18,11 +21,29 @@ from github_token_client.common import (
 )
 from github_token_client.credentials import GithubCredentials
 
+logger = getLogger(__name__)
+
 
 @dataclass
 class GithubState:
     credentials: GithubCredentials
     fine_grained_tokens: list[FineGrainedTokenStandardInfo]  # TODO more info
+    authenticity_tokens: set = field(default_factory=set)
+
+    def redeem_authenticity_token(self, token: str) -> bool:
+        try:
+            self.authenticity_tokens.remove(token)
+            logger.debug(f"redeemed authenticity token {token!r}")
+            return True
+        except KeyError:
+            logger.debug(f"invalid authenticity token {token!r}")
+            return False
+
+    def new_authenticity_token(self) -> str:
+        token = uuid4().hex
+        self.authenticity_tokens.add(token)
+        logger.debug(f"created new authenticity token {token!r}")
+        return token
 
 
 @dataclass
@@ -97,7 +118,7 @@ async def fake_github(aiohttp_server, credentials, request):
                 <h1>Confirm password</h1>
                 <form action="{base_url}/sessions/sudo" method="post">
                     <input type="hidden" name="authenticity_token"
-                        value="confirm-pw-authenticity-token">
+                        value="{state.new_authenticity_token()}">
                     <input type="hidden" name="sudo_referrer"
                         value="{referrer}">
                     <input type="hidden" name="sudo_return_to"
@@ -155,14 +176,20 @@ async def fake_github(aiohttp_server, credentials, request):
         @wraps(func)
         async def new_func(request):
             if request.cookies.get("password-confirmed") == "true":
+                logger.debug("password already confirmed")
                 return await func(request)
             data = await request.post()
             url = str(request.url)
             if "sudo_password" not in data:
+                logger.debug("showing password confirmation dialog")
                 input_elem_strs = "\n".join(
                     f'<input type="hidden" name="{k}" value="{v}">'
-                    for k, v in data.items()
+                    for k, v in ChainMap(
+                        {"authenticity_token": state.new_authenticity_token()},
+                        data,
+                    ).items()
                 )
+                logger.debug(f"creating form with: {input_elem_strs!r}")
                 referrer = request.headers.get("Referer", "")
                 return aiohttp.web.Response(
                     text=dedent(
@@ -183,10 +210,6 @@ async def fake_github(aiohttp_server, credentials, request):
                         """
                     )
                 )
-            # TODO in reality, the authenticity token is different for each
-            # step, but not sure how to simulate that easily...
-            # if data["authenticity_token"] != "confirm-pw-authenticity-token":
-            # return aiohttp.web.BadRequest("incorrect authenticity token")
             if data["sudo_password"] != credentials.password:
                 return aiohttp.web.Response(
                     text=dedent(
@@ -197,6 +220,7 @@ async def fake_github(aiohttp_server, credentials, request):
                         """
                     )
                 )
+            logger.debug("password will be set to confirmed after inner fn")
             response = await func(request)
             response.set_cookie("password-confirmed", "true")
             return response
@@ -215,7 +239,7 @@ async def fake_github(aiohttp_server, credentials, request):
                 f"""
                 <form action="/session" accept-charset="UTF-8" method="post">
                 <input type="hidden" name="authenticity_token"
-                    value="authenticity-token"
+                    value="{state.new_authenticity_token()}"
                 />
                 <input type="text" name="login"/>
                 <input type="password" name="password" />
@@ -259,8 +283,10 @@ async def fake_github(aiohttp_server, credentials, request):
     @routes.post("/sessions/sudo")
     async def sudo(request):
         data = await request.post()
-        if data["authenticity_token"] != "confirm-pw-authenticity-token":
-            return aiohttp.web.BadRequest("incorrect authenticity token")
+        if not state.redeem_authenticity_token(data["authenticity_token"]):
+            raise aiohttp.web.HTTPBadRequest(
+                reason="invalid authenticity token"
+            )
         if data["sudo_password"] != credentials.password:
             return aiohttp.web.Response(
                 text=dedent(
@@ -306,7 +332,7 @@ async def fake_github(aiohttp_server, credentials, request):
                                   value="delete"
                               />
                               <input type="hidden" name="authenticity_token"
-                                  value="authenticity-token-del-{token.id}" />
+                                  value="{state.new_authenticity_token()}" />
                           </form>
                           </div>
                       </details-dialog>
@@ -348,7 +374,7 @@ async def fake_github(aiohttp_server, credentials, request):
         token = {token.id: token for token in state.fine_grained_tokens}[
             token_id
         ]
-        locale.setlocale(locale.LC_ALL, "C")
+        locale.setlocale(locale.LC_ALL, "C")  # TODO shitty hakc
         expiration_str = token.expires.strftime("%a, %b %d %Y")
         return aiohttp.web.Response(
             text=f"Expires <span>on {expiration_str}</span>"
@@ -359,11 +385,11 @@ async def fake_github(aiohttp_server, credentials, request):
     async def delete(request):
         token_id = int(request.match_info["token_id"])
         data = await request.post()
-        if (
-            data["_method"] != "delete"
-            or data["authenticity_token"]
-            != f"authenticity-token-del-{token_id}"
-        ):
+        if not state.redeem_authenticity_token(data["authenticity_token"]):
+            raise aiohttp.web.HTTPBadRequest(
+                reason="invalid authenticity token"
+            )
+        if data["_method"] != "delete":
             # real response is "your browser did sth weird" but anyway...
             return aiohttp.web.HTTPNotFound()
         for i, token in enumerate(state.fine_grained_tokens):
@@ -384,7 +410,7 @@ async def fake_github(aiohttp_server, credentials, request):
             text="""
             <form id="new_user_programmatic_access">
                 <input name="authenticity_token"
-                    value="new-token-authenticity-token"
+                    value="state.new_authenticity_token()"
                 />
             </form>
             """
