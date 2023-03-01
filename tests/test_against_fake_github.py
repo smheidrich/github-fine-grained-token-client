@@ -28,20 +28,37 @@ logger = getLogger(__name__)
 class GithubState:
     credentials: GithubCredentials
     fine_grained_tokens: list[FineGrainedTokenStandardInfo]  # TODO more info
-    authenticity_tokens: set = field(default_factory=set)
+    authenticity_tokens: dict[str, str] = field(default_factory=dict)
+    "Mapping from URLs to authenticity tokens to post to them"
 
-    def redeem_authenticity_token(self, token: str) -> bool:
+    def redeem_authenticity_token(self, token: str, url: str) -> bool:
+        """
+        Validates and redeems an authenticity token for the given URL.
+        """
+        logger.debug(f"attempting to redeem authenticity token {token!r}")
         try:
-            self.authenticity_tokens.remove(token)
+            correct_token = self.authenticity_tokens[url]
+            if token != correct_token:
+                logger.debug(
+                    f"incorrect authenticity token for URL {url!r} "
+                    f"(given: {token!r}, correct: {correct_token!r})"
+                )
+                return False
             logger.debug(f"redeemed authenticity token {token!r}")
             return True
         except KeyError:
-            logger.debug(f"invalid authenticity token {token!r}")
+            logger.debug(
+                f"no authenticity token for URL {url!r} "
+                f"(given: {token!r}, available: {self.authenticity_tokens})"
+            )
             return False
 
-    def new_authenticity_token(self) -> str:
+    def new_authenticity_token(self, url: str) -> str:
+        """
+        Creates and registers a new authenticity token for the given URL.
+        """
         token = uuid4().hex
-        self.authenticity_tokens.add(token)
+        self.authenticity_tokens[url] = token
         logger.debug(f"created new authenticity token {token!r}")
         return token
 
@@ -58,7 +75,9 @@ class FakeGitHub:
 
 def make_base_url(server) -> str:
     # shitty hack: localhost instead of IP to allow cookies
-    return str(server.make_url("/")).replace("127.0.0.1", "localhost")
+    return (
+        str(server.make_url("/")).replace("127.0.0.1", "localhost").rstrip("/")
+    )
 
 
 @pytest.fixture
@@ -107,18 +126,19 @@ async def fake_github(aiohttp_server, credentials, request):
     ) -> aiohttp.web.Response | None:
         if request.cookies.get("password-confirmed") == "true":
             return None
-        base_url = make_base_url(server).rstrip("/")
+        base_url = make_base_url(server)
         referrer = request.headers.get("Referer", "")
         request_url = str(request.url)
+        action_url = f"{base_url}/sessions/sudo"
         return aiohttp.web.Response(
             text=dedent(
                 f"""
                 <div id="sudo">
                 <div>
                 <h1>Confirm password</h1>
-                <form action="{base_url}/sessions/sudo" method="post">
+                <form action="{action_url}" method="post">
                     <input type="hidden" name="authenticity_token"
-                        value="{state.new_authenticity_token()}">
+                        value="{state.new_authenticity_token(action_url)}">
                     <input type="hidden" name="sudo_referrer"
                         value="{referrer}">
                     <input type="hidden" name="sudo_return_to"
@@ -179,13 +199,17 @@ async def fake_github(aiohttp_server, credentials, request):
                 logger.debug("password already confirmed")
                 return await func(request)
             data = await request.post()
-            url = str(request.url)
+            action_url = str(request.url)
             if "sudo_password" not in data:
                 logger.debug("showing password confirmation dialog")
                 input_elem_strs = "\n".join(
                     f'<input type="hidden" name="{k}" value="{v}">'
                     for k, v in ChainMap(
-                        {"authenticity_token": state.new_authenticity_token()},
+                        {
+                            "authenticity_token": state.new_authenticity_token(
+                                action_url
+                            )
+                        },
                         data,
                     ).items()
                 )
@@ -197,7 +221,7 @@ async def fake_github(aiohttp_server, credentials, request):
                         <div id="sudo">
                         <div>
                         <h1>Confirm password</h1>
-                        <form action="{url}" method="post">
+                        <form action="{action_url}" method="post">
                             {input_elem_strs}
                             <input type="hidden" name="sudo_referrer"
                                 value="{referrer}">
@@ -227,6 +251,24 @@ async def fake_github(aiohttp_server, credentials, request):
 
         return new_func
 
+    def auto_redeem_authenticity_token(func):
+        """
+        Decorator to automatically check and redeem authenticity tokens.
+        """
+
+        @wraps(func)
+        async def new_func(request):
+            data = await request.post()
+            token = data["authenticity_token"]
+            request_url = str(request.url)
+            if not state.redeem_authenticity_token(token, request_url):
+                raise aiohttp.web.HTTPBadRequest(
+                    reason="invalid authenticity token"
+                )
+            return await func(request)
+
+        return new_func
+
     @routes.get("/login")
     async def login(request):
         if request.cookies.get("logged-in") == "true":
@@ -234,12 +276,13 @@ async def fake_github(aiohttp_server, credentials, request):
         return_to = request.query.get("return_to") or request.url.with_path(
             "/login"
         )
+        full_action_url = f"{make_base_url(server)}/session"
         return aiohttp.web.Response(
             text=dedent(
                 f"""
                 <form action="/session" accept-charset="UTF-8" method="post">
                 <input type="hidden" name="authenticity_token"
-                    value="{state.new_authenticity_token()}"
+                    value="{state.new_authenticity_token(full_action_url)}"
                 />
                 <input type="text" name="login"/>
                 <input type="password" name="password" />
@@ -252,6 +295,7 @@ async def fake_github(aiohttp_server, credentials, request):
         )
 
     @routes.post("/session")
+    @auto_redeem_authenticity_token
     async def session(request):
         data = await request.post()
         if (
@@ -281,12 +325,9 @@ async def fake_github(aiohttp_server, credentials, request):
         return response
 
     @routes.post("/sessions/sudo")
+    @auto_redeem_authenticity_token
     async def sudo(request):
         data = await request.post()
-        if not state.redeem_authenticity_token(data["authenticity_token"]):
-            raise aiohttp.web.HTTPBadRequest(
-                reason="invalid authenticity token"
-            )
         if data["sudo_password"] != credentials.password:
             return aiohttp.web.Response(
                 text=dedent(
@@ -311,6 +352,7 @@ async def fake_github(aiohttp_server, credentials, request):
     async def fine_grained_tokens(request):
         if request.query["type"] != "beta":
             return aiohttp.web.HTTPNotFound()
+        base_url = make_base_url(server)
         token_htmls = [
             f"""
             <div id="access-token-{token.id}"
@@ -325,14 +367,14 @@ async def fake_github(aiohttp_server, credentials, request):
                           <div class="Box-footer">
                           </option></form><!-- no idea what this is for -->
                           <form
-                              action="/settings/personal-access-tokens/446727"
+                              action="/settings/personal-access-tokens/{token.id}"
                               accept-charset="UTF-8" method="post"
                           >
                               <input type="hidden" name="_method"
                                   value="delete"
                               />
                               <input type="hidden" name="authenticity_token"
-                                  value="{state.new_authenticity_token()}" />
+                                  value="{state.new_authenticity_token(f"{base_url}/settings/personal-access-tokens/{token.id}")}" />
                           </form>
                           </div>
                       </details-dialog>
@@ -381,14 +423,11 @@ async def fake_github(aiohttp_server, credentials, request):
         )
 
     @routes.post("/settings/personal-access-tokens/{token_id}")
+    @auto_redeem_authenticity_token
     @embedded_password_confirmation
     async def delete(request):
         token_id = int(request.match_info["token_id"])
         data = await request.post()
-        if not state.redeem_authenticity_token(data["authenticity_token"]):
-            raise aiohttp.web.HTTPBadRequest(
-                reason="invalid authenticity token"
-            )
         if data["_method"] != "delete":
             # real response is "your browser did sth weird" but anyway...
             return aiohttp.web.HTTPNotFound()
@@ -406,17 +445,21 @@ async def fake_github(aiohttp_server, credentials, request):
     @auto_login_redirect_if_not_logged_in
     @dedicated_password_confirmation
     async def create_token_page(request):
+        full_action_url = (
+            f"{make_base_url(server)}/settings/personal-access-tokens"
+        )
         return aiohttp.web.Response(
-            text="""
+            text=f"""
             <form id="new_user_programmatic_access">
                 <input name="authenticity_token"
-                    value="state.new_authenticity_token()"
+                    value="{state.new_authenticity_token(full_action_url)}"
                 />
             </form>
             """
         )
 
     @routes.post("/settings/personal-access-tokens")
+    @auto_redeem_authenticity_token
     async def create_token_call(request):
         data = await request.post()
         # TODO also validate other data
