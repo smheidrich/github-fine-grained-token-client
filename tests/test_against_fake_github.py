@@ -564,7 +564,11 @@ async def test_get_fine_grained_tokens(fake_github, credentials):
 
 @pytest.mark.parametrize(
     "fake_github",
-    [{}, {"password_confirmation": {"/settings/personal-access-tokens/123"}}],
+    [
+        {},
+        {"password_confirmation": {"/settings/personal-access-tokens/123"}},
+        {"password_confirmation": {"/settings/tokens?type=beta"}},
+    ],
     indirect=True,
 )
 async def test_delete_fine_grained_tokens(fake_github, credentials):
