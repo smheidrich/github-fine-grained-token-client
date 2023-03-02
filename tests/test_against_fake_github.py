@@ -428,7 +428,7 @@ async def fake_github(aiohttp_server, credentials, request):
         return aiohttp.web.Response(text=page_html)
 
     @routes.get("/settings/personal-access-tokens/{token_id}/expiration")
-    async def expiration(request):
+    async def fine_grained_token_expiration(request):
         if request.query["page"] != "1":
             return aiohttp.web.HTTPNotFound()
         token_id = int(request.match_info["token_id"])
@@ -444,7 +444,7 @@ async def fake_github(aiohttp_server, credentials, request):
     @routes.post("/settings/personal-access-tokens/{token_id}")
     @auto_redeem_authenticity_token
     @embedded_password_confirmation
-    async def delete(request):
+    async def delete_fine_grained_token(request):
         token_id = int(request.match_info["token_id"])
         data = await request.post()
         if data["_method"] != "delete":
@@ -463,7 +463,7 @@ async def fake_github(aiohttp_server, credentials, request):
     @routes.get("/settings/personal-access-tokens/new")
     @auto_login_redirect_if_not_logged_in
     @dedicated_password_confirmation
-    async def create_token_page(request):
+    async def create_fine_grained_token_page(request):
         action_url = make_url(server, "/settings/personal-access-tokens")
         return aiohttp.web.Response(
             text=f"""
@@ -477,7 +477,7 @@ async def fake_github(aiohttp_server, credentials, request):
 
     @routes.post("/settings/personal-access-tokens")
     @auto_redeem_authenticity_token
-    async def create_token_call(request):
+    async def create_fine_grained_token_call(request):
         data = await request.post()
         # TODO also validate other data
         state.fine_grained_tokens.append(
