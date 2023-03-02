@@ -80,6 +80,10 @@ def make_base_url(server) -> str:
     )
 
 
+def make_url(server, path) -> str:
+    return "/".join([make_base_url(server), path.lstrip("/")])
+
+
 @pytest.fixture
 async def fake_github(aiohttp_server, credentials, request):
     # don't get confused: the above request param is a special pytest fixture,
@@ -126,10 +130,9 @@ async def fake_github(aiohttp_server, credentials, request):
     ) -> aiohttp.web.Response | None:
         if request.cookies.get("password-confirmed") == "true":
             return None
-        base_url = make_base_url(server)
         referrer = request.headers.get("Referer", "")
         request_url = str(request.url)
-        action_url = f"{base_url}/sessions/sudo"
+        action_url = make_url(server, "/sessions/sudo")
         return aiohttp.web.Response(
             text=dedent(
                 f"""
@@ -276,13 +279,16 @@ async def fake_github(aiohttp_server, credentials, request):
         return_to = request.query.get("return_to") or request.url.with_path(
             "/login"
         )
-        full_action_url = f"{make_base_url(server)}/session"
+        action_path = "/session"
+        action_url = make_url(server, action_path)
         return aiohttp.web.Response(
             text=dedent(
                 f"""
-                <form action="/session" accept-charset="UTF-8" method="post">
+                <form action="{action_path}" accept-charset="UTF-8"
+                    method="post"
+                >
                 <input type="hidden" name="authenticity_token"
-                    value="{state.new_authenticity_token(full_action_url)}"
+                    value="{state.new_authenticity_token(action_url)}"
                 />
                 <input type="text" name="login"/>
                 <input type="password" name="password" />
@@ -352,7 +358,6 @@ async def fake_github(aiohttp_server, credentials, request):
     async def fine_grained_tokens(request):
         if request.query["type"] != "beta":
             return aiohttp.web.HTTPNotFound()
-        base_url = make_base_url(server)
         token_htmls = [
             f"""
             <div id="access-token-{token.id}"
@@ -367,14 +372,14 @@ async def fake_github(aiohttp_server, credentials, request):
                           <div class="Box-footer">
                           </option></form><!-- no idea what this is for -->
                           <form
-                              action="/settings/personal-access-tokens/{token.id}"
+                              action="{action_path}"
                               accept-charset="UTF-8" method="post"
                           >
                               <input type="hidden" name="_method"
                                   value="delete"
                               />
                               <input type="hidden" name="authenticity_token"
-                                  value="{state.new_authenticity_token(f"{base_url}/settings/personal-access-tokens/{token.id}")}" />
+                                  value="{authenticity_token}" />
                           </form>
                           </div>
                       </details-dialog>
@@ -393,7 +398,7 @@ async def fake_github(aiohttp_server, credentials, request):
                 </div>
                 <div>
                   <include-fragment
-                      src="/settings/personal-access-tokens/{token.id}/expiration?page=1"
+                      src="{fragment_url}"
                   >
                     <span>Loading expiration ...</span>
                     <p hidden>Sorry, something went wrong.</p>
@@ -402,7 +407,21 @@ async def fake_github(aiohttp_server, credentials, request):
               </div>
             </div>
             """
-            for token in state.fine_grained_tokens
+            for token, action_path, authenticity_token, fragment_url in (
+                (
+                    token,
+                    f"/settings/personal-access-tokens/{token.id}",
+                    state.new_authenticity_token(
+                        make_url(
+                            server,
+                            f"/settings/personal-access-tokens/{token.id}",
+                        )
+                    ),
+                    f"/settings/personal-access-tokens/{token.id}/expiration"
+                    "?page=1",
+                )
+                for token in state.fine_grained_tokens
+            )
         ]
         tokens_html = "\n\n".join(token_htmls)
         page_html = f'<div class="listgroup">{tokens_html}</div>'
@@ -445,14 +464,12 @@ async def fake_github(aiohttp_server, credentials, request):
     @auto_login_redirect_if_not_logged_in
     @dedicated_password_confirmation
     async def create_token_page(request):
-        full_action_url = (
-            f"{make_base_url(server)}/settings/personal-access-tokens"
-        )
+        action_url = make_url(server, "/settings/personal-access-tokens")
         return aiohttp.web.Response(
             text=f"""
             <form id="new_user_programmatic_access">
                 <input name="authenticity_token"
-                    value="{state.new_authenticity_token(full_action_url)}"
+                    value="{state.new_authenticity_token(action_url)}"
                 />
             </form>
             """
