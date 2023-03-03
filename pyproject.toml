@@ -1,15 +1,15 @@
 [tool.poetry]
-name = "github-token-client"
+name = "github-fine-grained-token-client"
 version = "1.0.8"
 description = "Library and CLI tool for creating GitHub project tokens"
 authors = ["smheidrich <smheidrich@weltenfunktion.de>"]
 readme = "README.md"
-homepage = "https://smheidrich.gitlab.io/github-token-client/"
-repository = "https://gitlab.com/smheidrich/github-token-client"
-documentation = "https://smheidrich.gitlab.io/github-token-client/"
+homepage = "https://smheidrich.gitlab.io/github-fine-grained-token-client/"
+repository = "https://gitlab.com/smheidrich/github-fine-grained-token-client"
+documentation = "https://smheidrich.gitlab.io/github-fine-grained-token-client/"
 
 [tool.poetry.scripts]
-github-token-client = 'github_token_client.cli:cli_main'
+github-fine-grained-token-client = 'github_fine_grained_token_client.cli:cli_main'
 
 [tool.poetry.dependencies]
 python = "^3.10"

@@ -13,13 +13,13 @@ import pytest
 from aiohttp.web import Server
 from yarl import URL
 
-from github_token_client.async_client import async_github_token_client
-from github_token_client.common import (
+from github_fine_grained_token_client.async_client import async_github_fine_grained_token_client
+from github_fine_grained_token_client.common import (
     FineGrainedTokenMinimalInfo,
     FineGrainedTokenStandardInfo,
     LoginError,
 )
-from github_token_client.credentials import GithubCredentials
+from github_fine_grained_token_client.credentials import GithubCredentials
 
 logger = getLogger(__name__)
 
@@ -506,7 +506,7 @@ def credentials():
 
 
 async def test_login(fake_github, credentials):
-    async with async_github_token_client(
+    async with async_github_fine_grained_token_client(
         credentials,
         base_url=fake_github.base_url,
     ) as client:
@@ -514,7 +514,7 @@ async def test_login(fake_github, credentials):
 
 
 async def test_wrong_username(fake_github):
-    async with async_github_token_client(
+    async with async_github_fine_grained_token_client(
         GithubCredentials("wronguser", "wrongpw"),
         base_url=fake_github.base_url,
     ) as client:
@@ -523,7 +523,7 @@ async def test_wrong_username(fake_github):
 
 
 async def test_wrong_password(fake_github, credentials):
-    async with async_github_token_client(
+    async with async_github_fine_grained_token_client(
         GithubCredentials(credentials.username, "wrongpw"),
         base_url=fake_github.base_url,
     ) as client:
@@ -545,7 +545,7 @@ async def test_get_fine_grained_tokens_minimal(fake_github, credentials):
             last_used_str="never used",
         )
     ]
-    async with async_github_token_client(
+    async with async_github_fine_grained_token_client(
         credentials,
         base_url=fake_github.base_url,
     ) as client:
@@ -554,7 +554,7 @@ async def test_get_fine_grained_tokens_minimal(fake_github, credentials):
 
 
 async def test_get_fine_grained_tokens(fake_github, credentials):
-    async with async_github_token_client(
+    async with async_github_fine_grained_token_client(
         credentials,
         base_url=fake_github.base_url,
     ) as client:
@@ -572,7 +572,7 @@ async def test_get_fine_grained_tokens(fake_github, credentials):
     indirect=True,
 )
 async def test_delete_fine_grained_tokens(fake_github, credentials):
-    async with async_github_token_client(
+    async with async_github_fine_grained_token_client(
         credentials,
         base_url=fake_github.base_url,
     ) as client:
@@ -587,7 +587,7 @@ async def test_delete_fine_grained_tokens(fake_github, credentials):
     indirect=True,
 )
 async def test_create_fine_grained_tokens(fake_github, credentials):
-    async with async_github_token_client(
+    async with async_github_fine_grained_token_client(
         credentials,
         base_url=make_base_url(fake_github.server),
     ) as client:

@@ -5,8 +5,8 @@ from os import getenv
 
 import pytest
 
-from github_token_client.app import App
-from github_token_client.common import SingleProject
+from github_fine_grained_token_client.app import App
+from github_fine_grained_token_client.common import SingleProject
 
 # you have to define all of these to run these tests. you should use a dummy
 # account and project obviously

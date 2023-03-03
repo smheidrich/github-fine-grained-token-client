@@ -1,6 +1,6 @@
 from .async_client import (
-    AsyncGithubTokenClientSession,
-    async_github_token_client,
+    AsyncGithubFineGrainedTokenClientSession,
+    async_github_fine_grained_token_client,
 )
 from .common import (
     AllRepositories,
@@ -15,8 +15,8 @@ from .common import (
 from .credentials import GithubCredentials
 
 __all__ = [
-    "async_github_token_client",
-    "AsyncGithubTokenClientSession",
+    "async_github_fine_grained_token_client",
+    "AsyncGithubFineGrainedTokenClientSession",
     "GithubCredentials",
     "LoginError",
     "UsernameError",

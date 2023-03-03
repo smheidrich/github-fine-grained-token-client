@@ -4,7 +4,7 @@ from aiohttp.abc import AbstractCookieJar
 
 
 @dataclass
-class GithubTokenClientSessionState:
+class GithubFineGrainedTokenClientSessionState:
     """
     Session state that can be used to preserve logged-in states.
 

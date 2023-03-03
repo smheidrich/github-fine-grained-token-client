@@ -17,10 +17,10 @@ import aiohttp
 import dateparser
 from bs4 import BeautifulSoup
 
-from github_token_client.persisting_http_session import (
+from github_fine_grained_token_client.persisting_http_session import (
     PersistingHttpClientSession,
 )
-from github_token_client.response_holding_http_session import (
+from github_fine_grained_token_client.response_holding_http_session import (
     ResponseHoldingHttpSession,
 )
 
@@ -103,12 +103,12 @@ class _FineGrainedTokenMinimalInternalInfo(FineGrainedTokenMinimalInfo):
 
 
 @asynccontextmanager
-async def async_github_token_client(
+async def async_github_fine_grained_token_client(
     credentials: GithubCredentials,
     persist_to: Path | None = None,
     base_url: str = "https://github.com",
     logger: Logger = default_logger,
-) -> AsyncIterator["AsyncGithubTokenClientSession"]:
+) -> AsyncIterator["AsyncGithubFineGrainedTokenClientSession"]:
     """
     Context manager for launching an async client session.
 
@@ -126,7 +126,7 @@ async def async_github_token_client(
       A context manager for the async session.
     """
     async with aiohttp.ClientSession(raise_for_status=True) as http_session:
-        yield AsyncGithubTokenClientSession.make_with_cookies_loaded(
+        yield AsyncGithubFineGrainedTokenClientSession.make_with_cookies_loaded(
             http_session, credentials, persist_to, base_url, logger
         )
 
@@ -143,12 +143,12 @@ def _with_lock(meth):
 T = TypeVar("T")
 
 
-class AsyncGithubTokenClientSession:
+class AsyncGithubFineGrainedTokenClientSession:
     """
     Async token client session.
 
     Should not be instantiated directly but only through
-    :func:`async_github_token_client`.
+    :func:`async_github_fine_grained_token_client`.
 
     A session's lifecycle corresponds to that of the HTTP client which is used
     to perform operations on the GitHub web interface. When multiple operations

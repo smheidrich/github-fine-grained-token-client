@@ -6,7 +6,7 @@ from getpass import getpass
 
 import keyring
 
-keyring_service_prefix = "github-token-client-cli"
+keyring_service_prefix = "github-fine-grained-token-client-cli"
 
 
 @dataclass

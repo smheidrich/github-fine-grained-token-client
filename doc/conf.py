@@ -17,7 +17,7 @@
 
 # -- Project information -----------------------------------------------------
 
-project = "github-token-client"
+project = "github-fine-grained-token-client"
 copyright = "2023, smheidrich <smheidrich@weltenfunktion.de>"
 author = "smheidrich <smheidrich@weltenfunktion.de>"
 
@@ -89,7 +89,7 @@ intersphinx_mapping = {"python": ("https://docs.python.org/3", None)}
 # -- AutoAPI configuration ---------------------------------------------------
 
 autoapi_type = "python"
-autoapi_dirs = ["../github_token_client"]
+autoapi_dirs = ["../github_fine_grained_token_client"]
 autoapi_options = [
     "members",
     "undoc-members",

@@ -11,9 +11,9 @@ from yachalk import chalk
 
 from .async_client import (
     ALL_PERMISSION_NAMES,
-    AsyncGithubTokenClientSession,
+    AsyncGithubFineGrainedTokenClientSession,
     PermissionValue,
-    async_github_token_client,
+    async_github_fine_grained_token_client,
 )
 from .common import FineGrainedTokenScope, LoginError
 from .credentials import (
@@ -41,7 +41,7 @@ class App:
     @asynccontextmanager
     async def _logged_in_error_handling_session(
         self,
-    ) -> AsyncIterator[AsyncGithubTokenClientSession]:
+    ) -> AsyncIterator[AsyncGithubFineGrainedTokenClientSession]:
         # don't do anything interactive (e.g. ask about saving to keyring or
         # retry with prompt) if both username and password are provided
         # (generally suggests no interactivity is desired)
@@ -52,7 +52,7 @@ class App:
         ) = get_credentials_from_keyring_and_prompt(
             self.github_base_url, self.username, self.password
         )
-        async with async_github_token_client(
+        async with async_github_fine_grained_token_client(
             credentials, self.persist_to, self.github_base_url
         ) as session, self._handle_errors(session):
             for attempt in count():
@@ -82,7 +82,7 @@ class App:
 
     @staticmethod
     @asynccontextmanager
-    async def _handle_errors(session: AsyncGithubTokenClientSession):
+    async def _handle_errors(session: AsyncGithubFineGrainedTokenClientSession):
         # TODO
         yield
 
