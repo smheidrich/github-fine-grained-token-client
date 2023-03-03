@@ -619,6 +619,7 @@ class AsyncGithubFineGrainedTokenClientSession:
             raise KeyError(f"no such token: {name!r}")
         # delete
         id_ = info_by_name[name].id
+        self.logger.info(f"deleting token {name!r}")
         await self.http_session.post(
             self.base_url.rstrip("/")
             + f"/settings/personal-access-tokens/{id_}",
@@ -645,3 +646,4 @@ class AsyncGithubFineGrainedTokenClientSession:
         alert_text = alert.get_text().strip()
         if not alert_text == "Deleted personal access token":
             raise UnexpectedContentError(f"deletion failed: {alert_text!r}")
+        self.logger.info(f"deleted token {name!r}")

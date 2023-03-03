@@ -144,9 +144,20 @@ class App:
 
         asyncio.run(_run())
 
-    def delete_token(self, name: str) -> None:
+    def delete_token(self, name: str) -> bool:
+        """
+        Returns:
+            Whether a token of that name was actually deleted or whether
+            nothing had to be done because it was missing.
+        """
         async def _run():
             async with self._logged_in_error_handling_session() as session:
                 await session.delete_token(name)
 
-        asyncio.run(_run())
+        try:
+            asyncio.run(_run())
+            print(f"Deleted token {name!r}")
+            return True
+        except KeyError:
+            print(f"No token named {name!r} found. Nothing to do.")
+            return False

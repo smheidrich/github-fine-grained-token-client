@@ -165,12 +165,18 @@ def list_tokens(ctx: typer.Context):
 def delete(
     ctx: typer.Context,
     name: str = typer.Argument(..., help="name of token to delete"),
+    exit_code: bool = typer.Option(
+        False,
+        help="return a non-zero exit code if the token doesn't exist",
+    ),
 ):
     """
     Delete fine-grained token on GitHub
     """
     app = _app_from_typer_state(ctx.obj)
-    app.delete_token(name)
+    did_delete = app.delete_token(name)
+    if exit_code and not did_delete:
+        raise typer.Exit(2)
 
 
 def cli_main():
