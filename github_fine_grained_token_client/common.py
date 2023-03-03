@@ -90,25 +90,3 @@ class FineGrainedTokenStandardInfo(FineGrainedTokenMinimalInfo):
     """
 
     expires: datetime
-
-
-@dataclass
-class ClassicTokenMinimalInfo:
-    """
-    Information on a classic token obtainable with just one bulk request.
-    """
-
-    id: int
-    name: str
-    expires: datetime | None
-    # last_used: datetime | None  # TODO
-    last_used_str: str
-
-
-@dataclass
-class ClassicTokenStandardInfo(ClassicTokenMinimalInfo):
-    """
-    Information on a classic token as shown in the list on the website.
-    """
-
-    pass

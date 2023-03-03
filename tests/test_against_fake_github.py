@@ -549,7 +549,7 @@ async def test_get_fine_grained_tokens_minimal(fake_github, credentials):
         credentials,
         base_url=fake_github.base_url,
     ) as client:
-        tokens = await client.get_fine_grained_tokens_minimal()
+        tokens = await client.get_tokens_minimal()
         assert tokens == fake_github.state.fine_grained_tokens
 
 
@@ -558,7 +558,7 @@ async def test_get_fine_grained_tokens(fake_github, credentials):
         credentials,
         base_url=fake_github.base_url,
     ) as client:
-        tokens = await client.get_fine_grained_tokens()
+        tokens = await client.get_tokens()
         assert tokens == fake_github.state.fine_grained_tokens
 
 
@@ -576,7 +576,7 @@ async def test_delete_fine_grained_tokens(fake_github, credentials):
         credentials,
         base_url=fake_github.base_url,
     ) as client:
-        await client.delete_fine_grained_token("existing token")
+        await client.delete_token("existing token")
     assert fake_github.state.fine_grained_tokens == []
 
 
@@ -594,7 +594,7 @@ async def test_create_fine_grained_tokens(fake_github, credentials):
         name = "new token"
         expires = datetime(2023, 2, 5)
         description = "some description"
-        await client.create_fine_grained_token(name, expires, description)
+        await client.create_token(name, expires, description)
     new_token_info = fake_github.state.fine_grained_tokens[-1]
     assert new_token_info.name == name
     assert new_token_info.expires == expires

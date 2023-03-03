@@ -1,7 +1,7 @@
 [tool.poetry]
 name = "github-fine-grained-token-client"
 version = "1.0.8"
-description = "Library and CLI tool for creating GitHub project tokens"
+description = "Library and CLI tool for creating fine-grained GitHub tokens"
 authors = ["smheidrich <smheidrich@weltenfunktion.de>"]
 readme = "README.md"
 homepage = "https://smheidrich.gitlab.io/github-fine-grained-token-client/"

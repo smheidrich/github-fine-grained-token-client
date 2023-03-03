@@ -59,6 +59,10 @@ class App:
                 try:
                     did_login = await session.login()
                     if did_login and credentials_are_new and interactive:
+                        # TODO we never get here if we have a persistence state
+                        # with pw confirmed, so deleting pw from keyring while
+                        # still having that state means pw will never be saved
+                        # and user will be prompted for it on each run => fix?
                         save = input(
                             "success! save credentials to keyring (Y/n)? "
                         )
@@ -82,11 +86,13 @@ class App:
 
     @staticmethod
     @asynccontextmanager
-    async def _handle_errors(session: AsyncGithubFineGrainedTokenClientSession):
+    async def _handle_errors(
+        session: AsyncGithubFineGrainedTokenClientSession,
+    ):
         # TODO
         yield
 
-    def create_fine_grained_token(
+    def create_token(
         self,
         token_name: str,
         scope: FineGrainedTokenScope,
@@ -95,7 +101,7 @@ class App:
     ) -> None:
         async def _run():
             async with self._logged_in_error_handling_session() as session:
-                token = await session.create_fine_grained_token(
+                token = await session.create_token(
                     token_name,
                     timedelta(days=364),
                     description,
@@ -108,7 +114,7 @@ class App:
 
         asyncio.run(_run())
 
-    def list_possible_fine_grained_permissions(self) -> None:
+    def list_possible_permissions(self) -> None:
         for permission_name in ALL_PERMISSION_NAMES:
             print(permission_name)
 
@@ -130,25 +136,17 @@ class App:
                 )
             )
 
-    def list_fine_grained_tokens(self) -> None:
+    def list_tokens(self) -> None:
         async def _run():
             async with self._logged_in_error_handling_session() as session:
-                tokens = await session.get_fine_grained_tokens()
+                tokens = await session.get_tokens()
             self._pretty_print_tokens(tokens)
 
         asyncio.run(_run())
 
-    def list_classic_tokens(self) -> None:
+    def delete_token(self, name: str) -> None:
         async def _run():
             async with self._logged_in_error_handling_session() as session:
-                tokens = await session.get_classic_tokens()
-            self._pretty_print_tokens(tokens)
-
-        asyncio.run(_run())
-
-    def delete_fine_grained_token(self, name: str) -> None:
-        async def _run():
-            async with self._logged_in_error_handling_session() as session:
-                await session.delete_fine_grained_token(name)
+                await session.delete_token(name)
 
         asyncio.run(_run())

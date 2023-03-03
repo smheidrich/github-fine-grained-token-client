@@ -5,7 +5,6 @@ from sys import stderr
 
 import typer
 from github_fine_grained_token_client.async_client import PermissionValue
-
 from github_fine_grained_token_client.common import (
     AllRepositories,
     PublicRepositories,
@@ -74,7 +73,7 @@ def typer_callback(
 
 
 @cli_app.command()
-def create_fine_grained(
+def create(
     ctx: typer.Context,
     token_name: str = typer.Argument(..., help="name of the token"),
     repositories: str = typer.Option(
@@ -141,38 +140,29 @@ def create_fine_grained(
         },
     }
     app = _app_from_typer_state(ctx.obj)
-    app.create_fine_grained_token(token_name, scope, description, permissions)
+    app.create_token(token_name, scope, description, permissions)
 
 
 @cli_app.command()
-def possible_fine_grained_permissions(ctx: typer.Context):
+def possible_permissions(ctx: typer.Context):
     """
     List fine-grained permissions that can be set when creating a token.
     """
     app = _app_from_typer_state(ctx.obj)
-    app.list_possible_fine_grained_permissions()
+    app.list_possible_permissions()
 
 
-@cli_app.command()
-def list_fine_grained(ctx: typer.Context):
+@cli_app.command("list")
+def list_tokens(ctx: typer.Context):
     """
     List fine-grained tokens on GitHub
     """
     app = _app_from_typer_state(ctx.obj)
-    app.list_fine_grained_tokens()
+    app.list_tokens()
 
 
 @cli_app.command()
-def list_classic(ctx: typer.Context):
-    """
-    List classic tokens on GitHub
-    """
-    app = _app_from_typer_state(ctx.obj)
-    app.list_fine_grained_tokens()
-
-
-@cli_app.command()
-def delete_fine_grained(
+def delete(
     ctx: typer.Context,
     name: str = typer.Argument(..., help="name of token to delete"),
 ):
@@ -180,7 +170,7 @@ def delete_fine_grained(
     Delete fine-grained token on GitHub
     """
     app = _app_from_typer_state(ctx.obj)
-    app.delete_fine_grained_token(name)
+    app.delete_token(name)
 
 
 def cli_main():

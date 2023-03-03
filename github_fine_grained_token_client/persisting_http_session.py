@@ -54,24 +54,29 @@ class PersistingHttpClientSession:
         Equivalent to instantiating and then calling ``load`` while suppressing
         and logging errors.
         """
+        obj = cls(*args, **kwargs)
+        obj.load(suppress_errors=True)
+        return obj
+
+    def load(self, suppress_errors: bool = False) -> None:
+        """
+        Load cookies for the inner session from disk.
+
+        Args:
+            suppress_errors: Whether to suppress errors when loading the
+                cookies from disk. Doesn't suppress all errors, only those
+                caused by e.g. faulty I/O and missing or malformed files.
+        """
+        cookie_jar = CookieJar()
         try:
-            obj = cls(*args, **kwargs)
-            obj.load()
+            cookie_jar.load(self.cookies_path)
         except Exception:
             # TODO add proper logging using logging module instead
             print_exc()
             warn(
-                f"error reading pickled cookies at {obj.cookies_path} "
+                f"error reading pickled cookies at {self.cookies_path} "
                 "- ignoring"
             )
-        return obj
-
-    def load(self) -> None:
-        """
-        Load cookies for the inner session from disk.
-        """
-        cookie_jar = CookieJar()
-        cookie_jar.load(self.cookies_path)
         self.inner.cookie_jar.update_cookies(
             (cookie.key, cookie) for cookie in cookie_jar
         )
