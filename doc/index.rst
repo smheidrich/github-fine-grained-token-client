@@ -1,28 +1,21 @@
-github-token-client
-=================
+github-fine-grained-token-client
+================================
 
-github-token-client is a library and CLI tool for creating and managing GitHub
-project tokens.
+github-fine-grained-token-client is a library and CLI tool for creating and
+managing GitHub's fine-grained personal access tokens tokens.
 
 Purpose
 -------
 
-GitHub allows the creation of per-project tokens but doesn't (AFAIK) currently
-have an API to do so.
+GitHub allows the creation of per-project access tokens with fine-grained
+permissions but `doesn't currently have an API
+<https://github.com/community/community/discussions/36441#discussioncomment-3908915>`_
+to do so.
 
 This tool seeks to provide a client exposing this functionality anyway by
-whatever means necessary.
-
-Operating principle
--------------------
-
-Because there is no API and I'm also too lazy to try and figure out the exact
-sequence of HTTP requests one would have to make to simulate what happens when
-requesting tokens on the GitHub website, for now this tool just uses
-`Playwright <https://playwright.dev/python/>`_ to automate performing the
-necessary steps in an *actual* browser.
-
-This might be overkill and brittle but it works for now 🤷
+whatever means necessary. More specifically, for now this means simulating
+requests to the relevant parts of the web interface closely enough to how a
+browser would perform them.
 
 
 Table of contents

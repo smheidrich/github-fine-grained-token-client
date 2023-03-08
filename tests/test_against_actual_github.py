@@ -12,13 +12,11 @@ from github_fine_grained_token_client.common import SelectRepositories
 # you have to define all of these to run these tests. you should use a dummy
 # account and project obviously
 github_base_url = getenv(
-    "GITHUBTOKENCLIENT_TEST_GITHUB_BASE_URL", "https://github.com"
+    "GITHUBFINEGRAINEDTOKENCLIENT_TEST_GITHUB_BASE_URL", "https://github.com"
 )
-username = getenv("GITHUBTOKENCLIENT_TEST_USERNAME")
-password = getenv("GITHUBTOKENCLIENT_TEST_PASSWORD")
-project = getenv("GITHUBTOKENCLIENT_TEST_PROJECT")
-# set to 0 for non-headless mode
-headless = bool(int(getenv("GITHUBTOKENCLIENT_TEST_HEADLESS", "1")))
+username = getenv("GITHUBFINEGRAINEDTOKENCLIENT_TEST_USERNAME")
+password = getenv("GITHUBFINEGRAINEDTOKENCLIENT_TEST_PASSWORD")
+project = getenv("GITHUBFINEGRAINEDTOKENCLIENT_TEST_PROJECT")
 
 pytestmark = [
     pytest.mark.skipif(username is None, reason="no username provided"),

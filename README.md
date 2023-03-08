@@ -5,25 +5,19 @@
 [![pypi](https://img.shields.io/pypi/v/github-fine-grained-token-client)](https://pypi.org/project/github-fine-grained-token-client/)
 [![supported python versions](https://img.shields.io/pypi/pyversions/github-fine-grained-token-client)](https://pypi.org/project/github-fine-grained-token-client/)
 
-Library and CLI tool for creating and managing GitHub project tokens.
+Library and CLI tool for creating and managing fine-grained GitHub tokens.
 
 ## Purpose
 
-GitHub allows the creation of per-project tokens but doesn't (AFAIK) currently
-have an API to do so.
+GitHub allows the creation of per-project access tokens with fine-grained
+permissions but
+[doesn't currently have an API](https://github.com/community/community/discussions/36441#discussioncomment-3908915)
+to do so.
 
 This tool seeks to provide a client exposing this functionality anyway by
-whatever means necessary.
-
-## Operating principle
-
-Because there is no API and I'm also too lazy to try and figure out the exact
-sequence of HTTP requests one would have to make to simulate what happens when
-requesting tokens on the GitHub website, for now this tool just uses
-[Playwright](https://playwright.dev/python/) to automate performing the
-necessary steps in an *actual* browser.
-
-This might be overkill and brittle but it works for now 🤷
+whatever means necessary. More specifically, for now this means simulating
+requests to the relevant parts of the web interface closely enough to how a
+browser would perform them.
 
 ## Installation
 
@@ -33,22 +27,16 @@ To install from PyPI:
 pip3 install github-fine-grained-token-client
 ```
 
-You'll also have to install the required Playwright browsers (currently just
-Chromium):
-
-```bash
-playwright install chromium
-```
-
 ## Command-line tool usage
 
-To create a token `yourtokenname` for your GitHub project `yourproject`:
+To create a token `yourtokenname` with read-only permissions (the default) for
+your public GitHub repository `yourrepo`:
 
 ```bash
-github-fine-grained-token-client create --project yourproject yourtokenname
+github-fine-grained-token-client create --repositories yourrepo yourtokenname
 ```
 
-There are more commands - please refer to the docs.
+There are more commands and options - please refer to the docs.
 
 ## Usage as a library
 
@@ -59,7 +47,9 @@ import asyncio
 from os import getenv
 
 from github_fine_grained_token_client import (
-  async_github_fine_grained_token_client, SingleProject, GithubCredentials
+  async_github_fine_grained_token_client,
+  SelectRepositories,
+  GithubCredentials,
 )
 
 credentials = GithubCredentials(getenv("GITHUB_USER"), getenv("GITHUB_PASS"))
@@ -69,7 +59,8 @@ async def main() -> str:
   async with async_github_fine_grained_token_client(credentials) as session:
       token = await session.create_token(
           "my token",
-          SingleProject("my-project"),
+          expires=timedelta(days=364),
+          scope=SelectRepositories(["my-project"]),
       )
   return token
 

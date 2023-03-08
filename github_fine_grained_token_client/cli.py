@@ -15,7 +15,7 @@ from .app import App
 
 cli_app = typer.Typer(
     context_settings={
-        "auto_envvar_prefix": "GITHUBTOKENCLIENT",
+        "auto_envvar_prefix": "GITHUBFINEGRAINEDTOKENCLIENT",
     }
 )
 
