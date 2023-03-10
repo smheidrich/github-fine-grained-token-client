@@ -1,0 +1,16 @@
+# for state backend (mainly used for init and import scripts)
+export PROJECT_ID="123456789"
+export TF_USERNAME="myuser"
+export TF_PASSWORD="mypw"
+export TF_ADDRESS="https://gitlab.com/api/v4/projects/${PROJECT_ID}/terraform/state/state"
+
+# for main config:
+
+# GitLab
+export TF_VAR_gitlab_token="$TF_PASSWORD"
+# GitHub
+export TF_VAR_github_token="mytoken1"
+export TF_VAR_github_mirror_token="mytoken2"
+# common
+export TF_VAR_project_name="github-fine-grained-token-client"
+export TF_VAR_project_description="Create and manage fine-grained GitHub tokens"
