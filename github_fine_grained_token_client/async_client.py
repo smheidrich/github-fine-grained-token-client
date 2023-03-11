@@ -120,8 +120,10 @@ async def async_github_fine_grained_token_client(
       A context manager for the async session.
     """
     async with aiohttp.ClientSession(raise_for_status=True) as http_session:
-        yield AsyncGithubFineGrainedTokenClientSession.make_with_cookies_loaded(
-            http_session, credentials, persist_to, base_url, logger
+        yield (
+            AsyncGithubFineGrainedTokenClientSession.make_with_cookies_loaded(
+                http_session, credentials, persist_to, base_url, logger
+            )
         )
 
 

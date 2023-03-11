@@ -13,7 +13,9 @@ import pytest
 from aiohttp.web import Server
 from yarl import URL
 
-from github_fine_grained_token_client.async_client import async_github_fine_grained_token_client
+from github_fine_grained_token_client.async_client import (
+    async_github_fine_grained_token_client,
+)
 from github_fine_grained_token_client.common import (
     FineGrainedTokenMinimalInfo,
     FineGrainedTokenStandardInfo,
