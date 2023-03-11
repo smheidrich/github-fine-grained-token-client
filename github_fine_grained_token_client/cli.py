@@ -4,6 +4,7 @@ from pathlib import Path
 from sys import stderr
 
 import typer
+
 from github_fine_grained_token_client.async_client import PermissionValue
 from github_fine_grained_token_client.common import (
     AllRepositories,
