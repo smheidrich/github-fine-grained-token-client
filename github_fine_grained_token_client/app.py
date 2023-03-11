@@ -150,6 +150,7 @@ class App:
             Whether a token of that name was actually deleted or whether
             nothing had to be done because it was missing.
         """
+
         async def _run():
             async with self._logged_in_error_handling_session() as session:
                 await session.delete_token(name)
