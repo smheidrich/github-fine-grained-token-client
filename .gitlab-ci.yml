@@ -20,7 +20,7 @@ test:
           || $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
   script:
     - pip install poetry
-    - poetry install
+    - poetry install --extras=all
     - python -m flake8
     - python -m isort --check .
     - python -m black --check .
