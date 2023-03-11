@@ -11,12 +11,13 @@ from enum import Enum
 from functools import wraps
 from logging import Logger, getLogger
 from pathlib import Path
-from typing import AsyncIterator, Sequence, Type, TypeVar
+from typing import AsyncIterator, Sequence, Type, TypeVar, cast
 
 import aiohttp
 import dateparser
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, Tag
 
+from .abstract_http_session import AbstractHttpSession
 from .common import (
     AllRepositories,
     FineGrainedTokenMinimalInfo,
@@ -34,7 +35,8 @@ from .common import (
 from .credentials import GithubCredentials
 from .persisting_http_session import PersistingHttpClientSession
 from .response_holding_http_session import ResponseHoldingHttpSession
-from .utils.sequences import one_or_none
+from .utils.bs4 import expect_single_str, expect_single_str_or_none
+from .utils.sequences import exactly_one, one_or_none
 
 default_logger = getLogger(__name__)
 
@@ -136,7 +138,7 @@ def _with_lock(meth):
     return _with_lock
 
 
-T = TypeVar("T")
+T = TypeVar("T", bound="AsyncGithubFineGrainedTokenClientSession")
 
 
 class AsyncGithubFineGrainedTokenClientSession:
@@ -161,12 +163,17 @@ class AsyncGithubFineGrainedTokenClientSession:
         base_url: str = "https://github.com",
         logger: Logger = default_logger,
     ):
-        self.inner_http_session = http_session
+        # XXX cast required because Mypy doesn't support ABC registration...
+        # https://github.com/python/mypy/issues/2922
+        http_session_: AbstractHttpSession = cast(
+            AbstractHttpSession, http_session
+        )
+        self.inner_http_session = http_session_
         if persist_to is not None:
-            http_session = PersistingHttpClientSession(
-                http_session, persist_to
+            http_session_ = PersistingHttpClientSession(
+                http_session_, persist_to
             )
-        self.http_session = ResponseHoldingHttpSession(http_session)
+        self.http_session = ResponseHoldingHttpSession(http_session_)
         self.credentials = credentials
         self.base_url = base_url
         self.logger = logger
@@ -214,14 +221,17 @@ class AsyncGithubFineGrainedTokenClientSession:
         return BeautifulSoup(response_text, "html.parser")
 
     def _get_authenticity_token(
-        self, html: BeautifulSoup, form_id: str | None = None
+        self, html: BeautifulSoup | Tag, form_id: str | None = None
     ) -> str:
         selection_str = 'input[name="authenticity_token"]'
         if form_id:
             selection_str = f'form[id="{form_id}"] ' + selection_str
-        authenticity_token = (
-            one_or_none(html.select(selection_str)) or {}
-        ).get("value")
+        authenticity_token = expect_single_str_or_none(
+            (
+                one_or_none(html.select(selection_str))
+                or cast(dict[str, str], {})
+            ).get("value")
+        )
         if authenticity_token is None:
             raise UnexpectedContentError("no authenticity token found on page")
         return authenticity_token
@@ -235,7 +245,7 @@ class AsyncGithubFineGrainedTokenClientSession:
             done.
         """
         response = self._response
-        assert response is not None
+        assert response is not None  # make Mypy happy
         if not str(response.url).startswith(
             self.base_url.rstrip("/") + "/login"
         ):
@@ -258,6 +268,7 @@ class AsyncGithubFineGrainedTokenClientSession:
                 **hidden_inputs,
             },
         )
+        assert self._response is not None  # make Mypy happy
         if str(self._response.url).startswith(
             self.base_url.rstrip("/") + "/session"
         ):
@@ -293,11 +304,17 @@ class AsyncGithubFineGrainedTokenClientSession:
             input_elem["name"]: input_elem["value"]
             for input_elem in html.select('form input[type="hidden"]')
         }
+        form = one_or_none(html.select("form"))
+        if form is None:
+            raise UnexpectedContentError("no form found on page")
+        assert self._response is not None  # make Mypy happy
         response = await self.http_session.post(
             (
                 form_action
                 if any(
-                    (form_action := html.form["action"]).startswith(scheme)
+                    (
+                        form_action := expect_single_str(form["action"])
+                    ).startswith(scheme)
                     for scheme in ["https://", "http://"]
                 )
                 else self.base_url.rstrip("/") + form_action
@@ -306,7 +323,7 @@ class AsyncGithubFineGrainedTokenClientSession:
                 "sudo_password": self.credentials.password,
                 **hidden_inputs,
             },
-            headers={"Referer": str(self.http_session.response.url)},
+            headers={"Referer": str(self._response.url)},
         )
         if str(response.url).startswith(
             self.base_url.rstrip("/") + "/sessions/sudo"
@@ -335,6 +352,7 @@ class AsyncGithubFineGrainedTokenClientSession:
         html = await self._get_parsed_response_html()
         for button_elem in html.select("button"):
             input_elem = one_or_none(button_elem.select("input"))
+            assert input_elem is not None
             name_elem = one_or_none(
                 button_elem.select(".select-menu-item-text")
             )
@@ -342,7 +360,7 @@ class AsyncGithubFineGrainedTokenClientSession:
                 continue
             name = name_elem.contents[1].get_text()[1:]
             if name == repository_name:
-                return int(input_elem["value"])
+                return int(expect_single_str(input_elem["value"]))
         raise RepositoryNotFoundError(
             f"no such repository: {target_name}/{repository_name}"
         )
@@ -396,6 +414,7 @@ class AsyncGithubFineGrainedTokenClientSession:
             html, form_id="new_user_programmatic_access"
         )
         # build form data & submit
+        repository_ids: list[int]
         if isinstance(scope, PublicRepositories):
             install_target = "none"
             repository_ids = []
@@ -451,7 +470,7 @@ class AsyncGithubFineGrainedTokenClientSession:
                     raise TokenNameAlreadyTakenError(error.lower())
                 raise TokenCreationError(f"error creating token: {error}")
             raise UnexpectedContentError("no token value found on page")
-        token_value = token_elem["value"]
+        token_value = expect_single_str(token_elem["value"])
         return token_value
 
     @_with_lock
@@ -525,12 +544,12 @@ class AsyncGithubFineGrainedTokenClientSession:
         token_list = []
         for token_elem in token_elems:
             last_used_str = (
-                one_or_none(token_elem.select(".last-used")).get_text().strip()
+                exactly_one(token_elem.select(".last-used")).get_text().strip()
             )
-            details_link = one_or_none(
+            details_link = exactly_one(
                 token_elem.select(".token-description > strong a")
             )
-            id_ = int(details_link["href"].split("/")[-1])
+            id_ = int(expect_single_str(details_link["href"]).split("/")[-1])
             name = details_link.get_text().strip()
             deletion_authenticity_token = self._get_authenticity_token(
                 token_elem
@@ -556,7 +575,7 @@ class AsyncGithubFineGrainedTokenClientSession:
             The fine-grained token's expiration date.
         """
         # the point of this method is just to add a lock around this one:
-        return self._get_token_expiration()
+        return await self._get_token_expiration(token_id)
 
     async def _get_token_expiration(self, token_id: int) -> datetime:
         # NOTE: no lock (efficiency)! => don't rely on self._response
@@ -571,7 +590,12 @@ class AsyncGithubFineGrainedTokenClientSession:
             for x in ("expires on ", "expired on ")
         ):
             expires_str = expires_str[len("expire* on ") :]
-        return dateparser.parse(expires_str)
+        expires = dateparser.parse(expires_str)
+        if expires is None:
+            raise UnexpectedContentError(
+                f"could not parse expiration date {expires_str}"
+            )
+        return expires
 
     @_with_lock
     async def get_tokens(

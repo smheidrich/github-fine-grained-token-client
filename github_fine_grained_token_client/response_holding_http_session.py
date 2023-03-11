@@ -1,9 +1,11 @@
-from aiohttp import ClientResponse, ClientSession
+from aiohttp import ClientResponse, CookieJar
+
+from .abstract_http_session import AbstractHttpSession
 
 cookies_filename = "cookies.pickle"
 
 
-class ResponseHoldingHttpSession:
+class ResponseHoldingHttpSession(AbstractHttpSession):
     """
     Async HTTP client session that holds onto the last response it got.
 
@@ -18,7 +20,7 @@ class ResponseHoldingHttpSession:
     context managers!
     """
 
-    def __init__(self, inner: ClientSession):
+    def __init__(self, inner: AbstractHttpSession):
         """
         Args:
             inner: Underlying HTTP client session.
@@ -26,19 +28,25 @@ class ResponseHoldingHttpSession:
         self.inner = inner
         self.response: ClientResponse | None = None
 
+    @property
+    def cookie_jar(self) -> CookieJar:
+        return self.inner.cookie_jar
+
     # TODO add an __aexit__ for this?
-    async def _release_optional_response(self):
+    async def _release_optional_response(self) -> None:
         if self.response is not None:
             await self.response.release()
 
     async def get(self, *args, **kwargs) -> ClientResponse:
         await self._release_optional_response()
-        self.response = await self.inner.get(*args, **kwargs)
-        return self.response
+        response = await self.inner.get(*args, **kwargs)
+        self.response = response
+        return response
 
     async def post(self, *args, **kwargs) -> ClientResponse:
         await self._release_optional_response()
-        self.response = await self.inner.post(*args, **kwargs)
-        return self.response
+        response = await self.inner.post(*args, **kwargs)
+        self.response = response
+        return response
 
     # ... add more methods here as the need arises

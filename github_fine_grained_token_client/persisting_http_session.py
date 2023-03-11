@@ -4,16 +4,18 @@ from traceback import print_exc
 from typing import Type, TypeVar
 from warnings import warn
 
-from aiohttp import ClientSession, CookieJar
+from aiohttp import CookieJar
+
+from .abstract_http_session import AbstractHttpSession
 
 cookies_filename = "cookies.pickle"
 
-T = TypeVar("T")
+T = TypeVar("T", bound="PersistingHttpClientSession")
 
 default_logger = getLogger(__name__)
 
 
-class PersistingHttpClientSession:
+class PersistingHttpClientSession(AbstractHttpSession):
     """
     Async HTTP client session that persists cookies to disk after each request.
 
@@ -22,7 +24,7 @@ class PersistingHttpClientSession:
 
     def __init__(
         self,
-        inner: ClientSession,
+        inner: AbstractHttpSession,
         persist_to: Path,
         create_parents: bool = True,
         logger: Logger = default_logger,
@@ -45,6 +47,10 @@ class PersistingHttpClientSession:
     @property
     def cookies_path(self) -> Path:
         return self.persist_to / cookies_filename
+
+    @property
+    def cookie_jar(self) -> CookieJar:
+        return self.inner.cookie_jar
 
     @classmethod
     def make_loaded(cls: Type[T], *args, **kwargs) -> T:

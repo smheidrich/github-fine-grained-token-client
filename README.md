@@ -44,25 +44,28 @@ Basic example script:
 
 ```python
 import asyncio
-from os import getenv
+from datetime import timedelta
+from os import environ
 
 from github_fine_grained_token_client import (
-  async_github_fine_grained_token_client,
-  SelectRepositories,
-  GithubCredentials,
+    async_github_fine_grained_token_client,
+    SelectRepositories,
+    GithubCredentials,
 )
 
-credentials = GithubCredentials(getenv("GITHUB_USER"), getenv("GITHUB_PASS"))
+credentials = GithubCredentials(environ["GITHUB_USER"], environ["GITHUB_PASS"])
 assert credentials.username and credentials.password
 
+
 async def main() -> str:
-  async with async_github_fine_grained_token_client(credentials) as session:
-      token = await session.create_token(
-          "my token",
-          expires=timedelta(days=364),
-          scope=SelectRepositories(["my-project"]),
-      )
-  return token
+    async with async_github_fine_grained_token_client(credentials) as session:
+        token = await session.create_token(
+            "my token",
+            expires=timedelta(days=364),
+            scope=SelectRepositories(["my-project"]),
+        )
+    return token
+
 
 token = asyncio.run(main())
 
