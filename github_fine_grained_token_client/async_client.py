@@ -33,6 +33,7 @@ from .common import (
     UnexpectedPageError,
 )
 from .credentials import GithubCredentials
+from .dev import PosiblePermissions, PossiblePermission
 from .persisting_http_session import PersistingHttpClientSession
 from .response_holding_http_session import ResponseHoldingHttpSession
 from .utils.bs4 import expect_single_str, expect_single_str_or_none
@@ -673,3 +674,50 @@ class AsyncGithubFineGrainedTokenClientSession:
         if not alert_text == "Deleted personal access token":
             raise UnexpectedContentError(f"deletion failed: {alert_text!r}")
         self.logger.info(f"deleted token {name!r}")
+
+    @_with_lock
+    async def get_possible_permissions(self) -> PosiblePermissions:
+        """
+        Retrieve list of possible permissions one can use for tokens.
+
+        This is only useful for the development of this library and there is no
+        point in you using it. Users of this library can access all possible
+        permissions by iterating over the ``PermissionType`` enum instead,
+        which has the advantage of being a fully local operation.
+        """
+        await self.http_session.get(
+            self.base_url.rstrip("/") + "/settings/personal-access-tokens/new"
+        )
+        # login if necessary
+        await self._handle_login()
+        # confirm password if necessary
+        await self._confirm_password()
+        # get dynamic form data
+        html = await self._get_parsed_response_html()
+        possible_permissions_dict = {}
+        for permission_group in ["repository", "user"]:
+            possible_permissions_dict[permission_group] = []
+            permission_elems = html.select(
+                f'*[aria-label="{permission_group}-permissions"] li'
+            )
+            for permission_elem in permission_elems:
+                name = exactly_one(
+                    permission_elem.select("div > div > strong")
+                ).get_text()
+                description = (
+                    exactly_one(permission_elem.select("div.text-small"))
+                    .get_text()
+                    .strip()
+                )
+                full_identifier = permission_elem.select("input")[0]["name"]
+                identifier = full_identifier.split("[")[-1].strip("]")
+                possible_permission = PossiblePermission(
+                    identifier, name, description
+                )
+                possible_permissions_dict[permission_group].append(
+                    possible_permission
+                )
+        return PosiblePermissions(
+            repository=possible_permissions_dict["repository"],
+            account=possible_permissions_dict["user"],
+        )

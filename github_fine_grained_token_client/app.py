@@ -118,6 +118,23 @@ class App:
         for permission_name in ALL_PERMISSION_NAMES:
             print(permission_name)
 
+    def list_fetched_possible_permissions(self) -> None:
+        async def _run():
+            async with self._logged_in_error_handling_session() as session:
+                possible_permissions = await session.get_possible_permissions()
+            for group in ["repository", "account"]:
+                print(chalk.bold(f"{group.capitalize()}:"))
+                for possible_permission in getattr(
+                    possible_permissions, group
+                ):
+                    print(
+                        f"  {chalk.bold(possible_permission.name)} "
+                        f"({possible_permission.identifier})\n"
+                        f"    {possible_permission.description}"
+                    )
+
+        asyncio.run(_run())
+
     @classmethod
     def _pretty_print_tokens(cls, tokens: Sequence[Any]) -> None:
         """

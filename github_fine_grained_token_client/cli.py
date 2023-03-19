@@ -145,12 +145,20 @@ def create(
 
 
 @cli_app.command()
-def possible_permissions(ctx: typer.Context):
+def possible_permissions(
+    ctx: typer.Context,
+    fetch: bool = typer.Option(
+        False, help="fetch possible permissions from GitHub website"
+    ),
+):
     """
     List fine-grained permissions that can be set when creating a token.
     """
     app = _app_from_typer_state(ctx.obj)
-    app.list_possible_permissions()
+    if fetch:
+        app.list_fetched_possible_permissions()
+    else:
+        app.list_possible_permissions()
 
 
 @cli_app.command("list")
