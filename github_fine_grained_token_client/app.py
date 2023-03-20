@@ -161,6 +161,27 @@ class App:
 
         asyncio.run(_run())
 
+    def show_token_info(self, name: str) -> bool:
+        async def _run():
+            # TODO this should be only 1 method in the client which returns
+            # a FullTokenInfo dataclass instance or something like that...
+            async with self._logged_in_error_handling_session() as session:
+                tokens = await session.get_tokens()
+                tokens_by_name = {token.name: token for token in tokens}
+                try:
+                    token = tokens_by_name[name]
+                except KeyError:
+                    print(f"No token named {name!r} found.")
+                    return False
+                permissions = await session.get_token_permissions(token.id)
+            self._pretty_print_tokens([token])
+            print("  permissions:")
+            for permission_id, permission_value in permissions.items():
+                if permission_value != PermissionValue.NONE:
+                    print(f"    {permission_id}: {permission_value.value}")
+
+        asyncio.run(_run())
+
     def delete_token(self, name: str) -> bool:
         """
         Returns:

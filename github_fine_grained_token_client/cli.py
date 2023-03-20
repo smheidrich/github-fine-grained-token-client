@@ -171,6 +171,18 @@ def list_tokens(ctx: typer.Context):
 
 
 @cli_app.command()
+def info(
+    ctx: typer.Context,
+    name: str = typer.Argument(..., help="name of token"),
+):
+    """
+    Print information about a fine-grained token
+    """
+    app = _app_from_typer_state(ctx.obj)
+    app.show_token_info(name)
+
+
+@cli_app.command()
 def delete(
     ctx: typer.Context,
     name: str = typer.Argument(..., help="name of token to delete"),

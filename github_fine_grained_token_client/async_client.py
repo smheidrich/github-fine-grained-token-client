@@ -721,3 +721,33 @@ class AsyncGithubFineGrainedTokenClientSession:
             repository=possible_permissions_dict["repository"],
             account=possible_permissions_dict["user"],
         )
+
+    @_with_lock
+    async def get_token_permissions(
+        self, token_id: int
+    ) -> dict[str, PermissionValue]:
+        """
+        Retrieve permissions of a token.
+        """
+        await self.http_session.get(
+            self.base_url.rstrip("/")
+            + f"/settings/personal-access-tokens/{token_id}"
+        )
+        # login if necessary
+        await self._handle_login()
+        # confirm password if necessary
+        await self._confirm_password()
+        # get dynamic form data
+        html = await self._get_parsed_response_html()
+        permissions_dict = {}
+        permission_elems = html.select('li input[type="radio"]:checked')
+        for permission_elem in permission_elems:
+            full_identifier = permission_elem["name"]
+            identifier = full_identifier.split("[")[-1].strip("]")  # TODO refa
+            value = PermissionValue(permission_elem["value"])
+            permissions_dict[identifier] = value
+        if not permissions_dict:
+            raise UnexpectedContentError(
+                "no permission inputs found for token"
+            )
+        return permissions_dict
