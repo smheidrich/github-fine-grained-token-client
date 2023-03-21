@@ -42,7 +42,7 @@ Token scopes
 Token information bundles
 ~~~~~~~~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: github_fine_grained_token_client.FineGrainedTokenMinimalInfo
+.. autoclass:: github_fine_grained_token_client.FineGrainedTokenBulkInfo
 
    :members:
    :undoc-members:

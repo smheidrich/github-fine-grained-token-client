@@ -7,7 +7,6 @@ from collections.abc import Mapping
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
-from enum import Enum
 from functools import wraps
 from logging import Logger, getLogger
 from pathlib import Path
@@ -20,10 +19,12 @@ from bs4 import BeautifulSoup, Tag
 from .abstract_http_session import AbstractHttpSession
 from .common import (
     AllRepositories,
-    FineGrainedTokenMinimalInfo,
+    FineGrainedTokenBulkInfo,
+    FineGrainedTokenIndividualInfo,
     FineGrainedTokenScope,
     FineGrainedTokenStandardInfo,
     LoginError,
+    PermissionValue,
     PublicRepositories,
     RepositoryNotFoundError,
     SelectRepositories,
@@ -84,14 +85,8 @@ ALL_PERMISSION_NAMES = [
 ]
 
 
-class PermissionValue(Enum):
-    NONE = ""
-    READ = "read"
-    WRITE = "write"
-
-
 @dataclass
-class _FineGrainedTokenMinimalInternalInfo(FineGrainedTokenMinimalInfo):
+class _FineGrainedTokenMinimalInternalInfo(FineGrainedTokenBulkInfo):
     """
     Internally useful information on a fine-grained token from one request.
     """
@@ -499,7 +494,7 @@ class AsyncGithubFineGrainedTokenClientSession:
     @_with_lock
     async def get_tokens_minimal(
         self,
-    ) -> Sequence[FineGrainedTokenMinimalInfo]:
+    ) -> Sequence[FineGrainedTokenBulkInfo]:
         """
         Get fine-grained token list and some information via a single request.
 
@@ -516,9 +511,9 @@ class AsyncGithubFineGrainedTokenClientSession:
 
     async def _get_tokens_minimal(
         self,
-    ) -> Sequence[FineGrainedTokenMinimalInfo]:
+    ) -> Sequence[FineGrainedTokenBulkInfo]:
         return [
-            FineGrainedTokenMinimalInfo(
+            FineGrainedTokenBulkInfo(
                 id=info.id, name=info.name, last_used_str=info.last_used_str
             )
             for info in await self._get_tokens_minimal_internal()
@@ -630,6 +625,73 @@ class AsyncGithubFineGrainedTokenClientSession:
         ]
 
     @_with_lock
+    async def get_token_info(
+        self, token_id: int
+    ) -> FineGrainedTokenIndividualInfo:
+        """
+        Get complete information on a token as shown on the token's own page.
+
+        Args:
+            token_id: ID of the token. Can be obtained by calling
+                ``get_tokens`` and iterating over the results.
+
+        Returns:
+            Token information.
+        """
+        await self.http_session.get(
+            self.base_url.rstrip("/")
+            + f"/settings/personal-access-tokens/{token_id}"
+        )
+        # login if necessary
+        await self._handle_login()
+        # confirm password if necessary
+        await self._confirm_password()
+        # get dynamic form data
+        html = await self._get_parsed_response_html()
+        # parse name
+        name = exactly_one(html.select("h2 > p")).get_text().strip()
+        # parse creation date
+        creation_date_elem = exactly_one(
+            html.select("div.clearfix.mb-1 p.float-left")
+        )
+        creation_date_full_str = creation_date_elem.get_text().strip()
+        assert creation_date_full_str.startswith("Created on ")
+        creation_date_str = creation_date_full_str[len("Created on ") :]
+        creation_date = dateparser.parse(creation_date_str)
+        if creation_date is None:
+            raise UnexpectedContentError(
+                f"could not parse creation date {creation_date_str}"
+            )
+        # parse permissions
+        permissions = self._parse_token_permissions(html)
+        # get expiration date
+        expiration_date = await self._get_token_expiration(token_id)
+        return FineGrainedTokenIndividualInfo(
+            id=token_id,
+            name=name,
+            expires=expiration_date,
+            created=creation_date,
+            permissions=permissions,
+        )
+
+    def _parse_token_permissions(self, html) -> dict[str, PermissionValue]:
+        """
+        Parse a token's permissions from its own page.
+        """
+        permissions_dict = {}
+        permission_elems = html.select('li input[type="radio"]:checked')
+        for permission_elem in permission_elems:
+            full_identifier = permission_elem["name"]
+            identifier = full_identifier.split("[")[-1].strip("]")  # TODO refa
+            value = PermissionValue(permission_elem["value"])
+            permissions_dict[identifier] = value
+        if not permissions_dict:
+            raise UnexpectedContentError(
+                "no permission inputs found for token"
+            )
+        return permissions_dict
+
+    @_with_lock
     async def delete_token(self, name: str) -> None:
         """
         Delete fine-grained token from GitHub.
@@ -694,7 +756,7 @@ class AsyncGithubFineGrainedTokenClientSession:
         await self._confirm_password()
         # get dynamic form data
         html = await self._get_parsed_response_html()
-        possible_permissions_dict = {}
+        possible_permissions_dict: dict[str, list] = {}
         for permission_group in ["repository", "user"]:
             possible_permissions_dict[permission_group] = []
             permission_elems = html.select(
@@ -709,7 +771,9 @@ class AsyncGithubFineGrainedTokenClientSession:
                     .get_text()
                     .strip()
                 )
-                full_identifier = permission_elem.select("input")[0]["name"]
+                full_identifier = expect_single_str(
+                    permission_elem.select("input")[0]["name"]
+                )
                 identifier = full_identifier.split("[")[-1].strip("]")
                 possible_permission = PossiblePermission(
                     identifier, name, description
@@ -721,33 +785,3 @@ class AsyncGithubFineGrainedTokenClientSession:
             repository=possible_permissions_dict["repository"],
             account=possible_permissions_dict["user"],
         )
-
-    @_with_lock
-    async def get_token_permissions(
-        self, token_id: int
-    ) -> dict[str, PermissionValue]:
-        """
-        Retrieve permissions of a token.
-        """
-        await self.http_session.get(
-            self.base_url.rstrip("/")
-            + f"/settings/personal-access-tokens/{token_id}"
-        )
-        # login if necessary
-        await self._handle_login()
-        # confirm password if necessary
-        await self._confirm_password()
-        # get dynamic form data
-        html = await self._get_parsed_response_html()
-        permissions_dict = {}
-        permission_elems = html.select('li input[type="radio"]:checked')
-        for permission_elem in permission_elems:
-            full_identifier = permission_elem["name"]
-            identifier = full_identifier.split("[")[-1].strip("]")  # TODO refa
-            value = PermissionValue(permission_elem["value"])
-            permissions_dict[identifier] = value
-        if not permissions_dict:
-            raise UnexpectedContentError(
-                "no permission inputs found for token"
-            )
-        return permissions_dict

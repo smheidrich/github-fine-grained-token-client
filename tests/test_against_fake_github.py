@@ -17,7 +17,7 @@ from github_fine_grained_token_client.async_client import (
     async_github_fine_grained_token_client,
 )
 from github_fine_grained_token_client.common import (
-    FineGrainedTokenMinimalInfo,
+    FineGrainedTokenBulkInfo,
     FineGrainedTokenStandardInfo,
     LoginError,
 )
@@ -541,7 +541,7 @@ async def test_wrong_password(fake_github, credentials):
 async def test_get_fine_grained_tokens_minimal(fake_github, credentials):
     # TODO this is not correct from type perspective => better minimize result
     fake_github.state.fine_grained_tokens = [
-        FineGrainedTokenMinimalInfo(
+        FineGrainedTokenBulkInfo(
             id=123,
             name="existing token",
             last_used_str="never used",

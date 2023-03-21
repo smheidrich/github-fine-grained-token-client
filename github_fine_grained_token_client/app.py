@@ -146,12 +146,14 @@ class App:
         """
         for token in tokens:
             print(chalk.bold(token.name))
-            print(
-                "\n".join(
-                    f"  {f.name}: {getattr(token, f.name)}"
-                    for f in fields(token)
-                )
-            )
+            for f in fields(token):
+                if f.name == "permissions":
+                    permissions = getattr(token, f.name)
+                    for permission, value in permissions.items():
+                        if value != PermissionValue.NONE:
+                            print(f"    {permission}: {value.value}")
+                    continue
+                print(f"  {f.name}: {getattr(token, f.name)}")
 
     def list_tokens(self) -> None:
         async def _run():
@@ -163,8 +165,8 @@ class App:
 
     def show_token_info(self, name: str) -> bool:
         async def _run():
-            # TODO this should be only 1 method in the client which returns
-            # a FullTokenInfo dataclass instance or something like that...
+            # TODO we should allow querying by ID here as well to let users
+            # avoid that extra listing request...
             async with self._logged_in_error_handling_session() as session:
                 tokens = await session.get_tokens()
                 tokens_by_name = {token.name: token for token in tokens}
@@ -173,14 +175,11 @@ class App:
                 except KeyError:
                     print(f"No token named {name!r} found.")
                     return False
-                permissions = await session.get_token_permissions(token.id)
-            self._pretty_print_tokens([token])
-            print("  permissions:")
-            for permission_id, permission_value in permissions.items():
-                if permission_value != PermissionValue.NONE:
-                    print(f"    {permission_id}: {permission_value.value}")
+                full_token_info = await session.get_token_info(token.id)
+            self._pretty_print_tokens([full_token_info])
 
         asyncio.run(_run())
+        return True
 
     def delete_token(self, name: str) -> bool:
         """

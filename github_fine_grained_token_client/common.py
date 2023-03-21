@@ -1,8 +1,10 @@
 """
 Data structures common to both sync and async client.
 """
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
+from enum import Enum
 from pathlib import Path
 from typing import Sequence
 
@@ -71,8 +73,24 @@ class SelectRepositories(FineGrainedTokenScope):
     "Repository names"
 
 
+class PermissionValue(Enum):
+    NONE = ""
+    READ = "read"
+    WRITE = "write"
+
+
 @dataclass
 class FineGrainedTokenMinimalInfo:
+    """
+    Absolutely minimal information on a token.
+    """
+
+    id: int
+    name: str
+
+
+@dataclass
+class FineGrainedTokenBulkInfo:
     """
     Information on a fine-grained token obtainable with just one bulk request.
     """
@@ -84,9 +102,22 @@ class FineGrainedTokenMinimalInfo:
 
 
 @dataclass
-class FineGrainedTokenStandardInfo(FineGrainedTokenMinimalInfo):
+class FineGrainedTokenStandardInfo(FineGrainedTokenBulkInfo):
     """
     Information on a fine-grained token as shown in the list on the website.
     """
 
     expires: datetime
+
+
+@dataclass
+class FineGrainedTokenIndividualInfo(FineGrainedTokenMinimalInfo):
+    """
+    Information on a fine-grained token as shown on the token's own page.
+
+    Contains almost everything except the last used date for some reason.
+    """
+
+    created: datetime
+    expires: datetime
+    permissions: Mapping[str, PermissionValue]
