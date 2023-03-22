@@ -163,10 +163,17 @@ class App:
 
         asyncio.run(_run())
 
-    def show_token_info(self, name: str) -> bool:
+    def show_token_info_by_id(self, token_id: int) -> bool:
         async def _run():
-            # TODO we should allow querying by ID here as well to let users
-            # avoid that extra listing request...
+            async with self._logged_in_error_handling_session() as session:
+                full_token_info = await session.get_token_info(token_id)
+            self._pretty_print_tokens([full_token_info])
+            return True
+
+        return asyncio.run(_run())
+
+    def show_token_info_by_name(self, name: str) -> bool:
+        async def _run():
             async with self._logged_in_error_handling_session() as session:
                 tokens = await session.get_tokens()
                 tokens_by_name = {token.name: token for token in tokens}
@@ -177,9 +184,9 @@ class App:
                     return False
                 full_token_info = await session.get_token_info(token.id)
             self._pretty_print_tokens([full_token_info])
+            return True
 
-        asyncio.run(_run())
-        return True
+        return asyncio.run(_run())
 
     def delete_token(self, name: str) -> bool:
         """

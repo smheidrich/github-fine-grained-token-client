@@ -173,13 +173,33 @@ def list_tokens(ctx: typer.Context):
 @cli_app.command()
 def info(
     ctx: typer.Context,
-    name: str = typer.Argument(..., help="name of token"),
+    name_or_id: str = typer.Argument(
+        ...,
+        help="name or ID of token, "
+        "decided based on whether it's a number or not; "
+        "see --name and --id for forcing one or the other",
+    ),
+    name: bool = typer.Option(
+        False, help="force interpreting NAME_OR_ID as a name"
+    ),
+    id: bool = typer.Option(
+        False, help="force interpreting NAME_OR_ID as an ID"
+    ),
 ):
     """
     Print information about a fine-grained token
     """
     app = _app_from_typer_state(ctx.obj)
-    app.show_token_info(name)
+    if name and id:
+        print(
+            "--name and --id are mutually exclusive",
+            file=stderr,
+        )
+        raise typer.Exit(1)
+    if id or (name_or_id.isdigit() and not name):
+        app.show_token_info_by_id(int(name_or_id))
+    else:
+        app.show_token_info_by_name(name_or_id)
 
 
 @cli_app.command()
