@@ -185,6 +185,11 @@ def info(
     id: bool = typer.Option(
         False, help="force interpreting NAME_OR_ID as an ID"
     ),
+    complete: bool = typer.Option(
+        False,
+        help="fetch information not on the token's own page "
+        "(specifically, the last-used date)",
+    ),
 ):
     """
     Print information about a fine-grained token
@@ -197,9 +202,9 @@ def info(
         )
         raise typer.Exit(1)
     if id or (name_or_id.isdigit() and not name):
-        app.show_token_info_by_id(int(name_or_id))
+        app.show_token_info_by_id(int(name_or_id), complete)
     else:
-        app.show_token_info_by_name(name_or_id)
+        app.show_token_info_by_name(name_or_id, complete)
 
 
 @cli_app.command()

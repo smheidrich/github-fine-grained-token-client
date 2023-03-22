@@ -90,13 +90,11 @@ class FineGrainedTokenMinimalInfo:
 
 
 @dataclass
-class FineGrainedTokenBulkInfo:
+class FineGrainedTokenBulkInfo(FineGrainedTokenMinimalInfo):
     """
     Information on a fine-grained token obtainable with just one bulk request.
     """
 
-    id: int
-    name: str
     # last_used: datetime | None  # TODO
     last_used_str: str
 
@@ -121,3 +119,15 @@ class FineGrainedTokenIndividualInfo(FineGrainedTokenMinimalInfo):
     created: datetime
     expires: datetime
     permissions: Mapping[str, PermissionValue]
+
+
+@dataclass
+class FineGrainedTokenCompletePersistentInfo(
+    FineGrainedTokenBulkInfo, FineGrainedTokenIndividualInfo
+):
+    """
+    Complete persistent information on a fine-grained token.
+
+    Contains all information that can be accessed after token creation (so not
+    the token value itself, which is meant to be secret from then on).
+    """

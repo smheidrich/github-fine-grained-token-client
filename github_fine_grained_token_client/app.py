@@ -163,16 +163,28 @@ class App:
 
         asyncio.run(_run())
 
-    def show_token_info_by_id(self, token_id: int) -> bool:
+    def show_token_info_by_id(
+        self, token_id: int, complete: bool = False
+    ) -> bool:
         async def _run():
             async with self._logged_in_error_handling_session() as session:
-                full_token_info = await session.get_token_info(token_id)
+                if complete:
+                    full_token_info = (
+                        await session.get_complete_persistent_token_info(
+                            token_id
+                        )
+                    )
+                else:
+                    full_token_info = await session.get_token_info(token_id)
             self._pretty_print_tokens([full_token_info])
             return True
 
         return asyncio.run(_run())
 
-    def show_token_info_by_name(self, name: str) -> bool:
+    def show_token_info_by_name(
+        self, name: str, complete: bool = False
+    ) -> bool:
+        # TODO refactor: extract commonalities with ^
         async def _run():
             async with self._logged_in_error_handling_session() as session:
                 tokens = await session.get_tokens()
@@ -182,7 +194,14 @@ class App:
                 except KeyError:
                     print(f"No token named {name!r} found.")
                     return False
-                full_token_info = await session.get_token_info(token.id)
+                if complete:
+                    full_token_info = (
+                        await session.get_complete_persistent_token_info(
+                            token.id
+                        )
+                    )
+                else:
+                    full_token_info = await session.get_token_info(token.id)
             self._pretty_print_tokens([full_token_info])
             return True
 

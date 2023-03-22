@@ -20,6 +20,7 @@ from .abstract_http_session import AbstractHttpSession
 from .common import (
     AllRepositories,
     FineGrainedTokenBulkInfo,
+    FineGrainedTokenCompletePersistentInfo,
     FineGrainedTokenIndividualInfo,
     FineGrainedTokenScope,
     FineGrainedTokenStandardInfo,
@@ -638,6 +639,14 @@ class AsyncGithubFineGrainedTokenClientSession:
         Returns:
             Token information.
         """
+        return await self._get_token_info(token_id)
+
+    async def _get_token_info(
+        self, token_id: int
+    ) -> FineGrainedTokenIndividualInfo:
+        """
+        See get_token_info - this is just it without a lock.
+        """
         await self.http_session.get(
             self.base_url.rstrip("/")
             + f"/settings/personal-access-tokens/{token_id}"
@@ -672,6 +681,37 @@ class AsyncGithubFineGrainedTokenClientSession:
             expires=expiration_date,
             created=creation_date,
             permissions=permissions,
+        )
+
+    @_with_lock
+    async def get_complete_persistent_token_info(
+        self, token_id: int
+    ) -> FineGrainedTokenIndividualInfo:
+        """
+        Get all persistent information on a token.
+
+        This queries not only the token's own page but also the list of tokens
+        where the last-used information resides.
+
+        Args:
+            token_id: ID of the token. Can be obtained by calling
+                ``get_tokens`` and iterating over the results.
+
+        Returns:
+            Token information.
+        """
+        bulk_tokens_info = await self._get_tokens_minimal()
+        bulk_token_info = exactly_one(
+            [t for t in bulk_tokens_info if t.id == token_id]
+        )
+        individual_token_info = await self._get_token_info(token_id)
+        return FineGrainedTokenCompletePersistentInfo(
+            id=token_id,
+            name=individual_token_info.name,
+            expires=individual_token_info.expires,
+            created=individual_token_info.created,
+            permissions=individual_token_info.permissions,
+            last_used_str=bulk_token_info.last_used_str,
         )
 
     def _parse_token_permissions(self, html) -> dict[str, PermissionValue]:
