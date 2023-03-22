@@ -18,10 +18,14 @@ from github_fine_grained_token_client.async_client import (
 )
 from github_fine_grained_token_client.common import (
     FineGrainedTokenBulkInfo,
+    FineGrainedTokenCompletePersistentInfo,
+    FineGrainedTokenIndividualInfo,
     FineGrainedTokenStandardInfo,
     LoginError,
+    PermissionValue,
 )
 from github_fine_grained_token_client.credentials import GithubCredentials
+from tests.utils_for_tests import assert_lhs_fields_match
 
 logger = getLogger(__name__)
 
@@ -96,11 +100,15 @@ async def fake_github(aiohttp_server, credentials, request):
     state = GithubState(
         credentials,
         [
-            FineGrainedTokenStandardInfo(
+            FineGrainedTokenCompletePersistentInfo(
                 id=123,
                 name="existing token",
                 last_used_str="never used",
+                created=datetime(2022, 3, 3),
                 expires=datetime(2023, 3, 3),
+                permissions={
+                    "contents": PermissionValue.WRITE,
+                },
             )
         ],
     )
@@ -443,6 +451,48 @@ async def fake_github(aiohttp_server, credentials, request):
             text=f"Expires <span>on {expiration_str}</span>"
         )
 
+    @routes.get("/settings/personal-access-tokens/{token_id:[0-9]+}")
+    async def fine_grained_token_page(request):
+        token_id = int(request.match_info["token_id"])
+        for i, token in enumerate(state.fine_grained_tokens):
+            if token.id == token_id:
+                token = state.fine_grained_tokens[i]
+                break
+        else:
+            return aiohttp.web.HTTPNotFound()
+        permissions_html = "\n".join(
+            [
+                dedent(
+                    f"""
+                <li>
+                    <input type="radio"
+                        name="integration[default_permissions][{perm_id}]"
+                        value="{poss_value.value}"
+                        {"checked" if perm_value == poss_value else ""}
+                    >
+                </li>
+            """
+                )
+                for perm_id, perm_value in token.permissions.items()
+                for poss_value in PermissionValue
+            ]
+        )
+        return aiohttp.web.Response(
+            text=dedent(
+                f"""
+                <h2>
+                  <p>{token.name}</p>
+                </h2>
+                <div class="clearfix mb-1">
+                  <p class="float-left">
+                    Created on <span>{token.created}</span>
+                  </p>
+                </div>
+                {permissions_html}
+                """
+            )
+        )
+
     @routes.post("/settings/personal-access-tokens/{token_id}")
     @auto_redeem_authenticity_token
     @embedded_password_confirmation
@@ -539,20 +589,18 @@ async def test_wrong_password(fake_github, credentials):
     indirect=True,
 )
 async def test_get_fine_grained_tokens_minimal(fake_github, credentials):
-    # TODO this is not correct from type perspective => better minimize result
-    fake_github.state.fine_grained_tokens = [
-        FineGrainedTokenBulkInfo(
-            id=123,
-            name="existing token",
-            last_used_str="never used",
-        )
-    ]
     async with async_github_fine_grained_token_client(
         credentials,
         base_url=fake_github.base_url,
     ) as client:
         tokens = await client.get_tokens_minimal()
-        assert tokens == fake_github.state.fine_grained_tokens
+        for token, reference_token in zip(
+            tokens, fake_github.state.fine_grained_tokens
+        ):
+            assert isinstance(token, FineGrainedTokenBulkInfo)
+            assert_lhs_fields_match(
+                token, fake_github.state.fine_grained_tokens[0]
+            )
 
 
 async def test_get_fine_grained_tokens(fake_github, credentials):
@@ -561,7 +609,39 @@ async def test_get_fine_grained_tokens(fake_github, credentials):
         base_url=fake_github.base_url,
     ) as client:
         tokens = await client.get_tokens()
-        assert tokens == fake_github.state.fine_grained_tokens
+        for token, reference_token in zip(
+            tokens, fake_github.state.fine_grained_tokens
+        ):
+            assert isinstance(token, FineGrainedTokenBulkInfo)
+            assert_lhs_fields_match(
+                token, fake_github.state.fine_grained_tokens[0]
+            )
+
+
+async def test_get_fine_grained_token_info(fake_github, credentials):
+    async with async_github_fine_grained_token_client(
+        credentials,
+        base_url=fake_github.base_url,
+    ) as client:
+        token_info = await client.get_token_info(123)
+        assert isinstance(token_info, FineGrainedTokenIndividualInfo)
+        assert_lhs_fields_match(
+            token_info, fake_github.state.fine_grained_tokens[0]
+        )
+
+
+async def test_get_complete_persistent_fine_grained_token_info(
+    fake_github, credentials
+):
+    async with async_github_fine_grained_token_client(
+        credentials,
+        base_url=fake_github.base_url,
+    ) as client:
+        token_info = await client.get_complete_persistent_token_info(123)
+        assert isinstance(token_info, FineGrainedTokenIndividualInfo)
+        assert_lhs_fields_match(
+            token_info, fake_github.state.fine_grained_tokens[0]
+        )
 
 
 @pytest.mark.parametrize(

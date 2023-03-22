@@ -25,7 +25,10 @@ pytestmark = [
 ]
 
 
-def test_app_create_list_and_delete_token(tee_capsys):
+# TODO testing the app should really be done via unit tests using the fake
+#   github API and the sequence below should be done via the client directly
+#   so it's easy to get the ID etc.
+def test_app_create_list_show_and_delete_token(tee_capsys):
     capsys = tee_capsys  # shortcut
     app = App(None, username, password, github_base_url)
     token_name = "githubfinegrainedtokenclienttest"
@@ -38,6 +41,9 @@ def test_app_create_list_and_delete_token(tee_capsys):
     captured = capsys.readouterr()
     assert "Created token:" in captured.out
     app.list_tokens()
+    captured = capsys.readouterr()
+    assert token_name in captured.out
+    app.show_token_info_by_name(token_name, complete=True)
     captured = capsys.readouterr()
     assert token_name in captured.out
     did_delete = app.delete_token(token_name)

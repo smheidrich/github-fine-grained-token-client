@@ -664,8 +664,10 @@ class AsyncGithubFineGrainedTokenClientSession:
             html.select("div.clearfix.mb-1 p.float-left")
         )
         creation_date_full_str = creation_date_elem.get_text().strip()
-        assert creation_date_full_str.startswith("Created on ")
-        creation_date_str = creation_date_full_str[len("Created on ") :]
+        # Can either say "Created on DATE" or "Created today", but dateparser
+        # ignores the "on" automatically so we can leave it in
+        assert creation_date_full_str.startswith("Created ")
+        creation_date_str = creation_date_full_str[len("Created ") :]
         creation_date = dateparser.parse(creation_date_str)
         if creation_date is None:
             raise UnexpectedContentError(
