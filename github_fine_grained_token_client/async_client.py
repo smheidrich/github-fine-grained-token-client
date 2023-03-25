@@ -305,7 +305,7 @@ class AsyncGithubFineGrainedTokenClientSession:
             form = one_or_none(html.select("form"))
             if form is None:
                 raise UnexpectedContentError("no form found on page")
-            response.close()  # free up connection for next request
+            response.release()  # free up connection for next request
             async with self.http_session.post(
                 (
                     form_action
