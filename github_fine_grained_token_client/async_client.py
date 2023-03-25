@@ -37,7 +37,6 @@ from .common import (
 from .credentials import GithubCredentials
 from .dev import PosiblePermissions, PossiblePermission
 from .persisting_http_session import PersistingHttpClientSession
-from .response_holding_http_session import ResponseHoldingHttpSession
 from .utils.bs4 import expect_single_str, expect_single_str_or_none
 from .utils.sequences import exactly_one, one_or_none
 
@@ -170,26 +169,19 @@ class AsyncGithubFineGrainedTokenClientSession:
             http_session_ = PersistingHttpClientSession(
                 http_session_, persist_to
             )
-        self.http_session = ResponseHoldingHttpSession(http_session_)
+        self.http_session = http_session_
         self.credentials = credentials
         self.base_url = base_url
         self.logger = logger
         self._lock = Lock()
 
     @property
-    def _response(self) -> aiohttp.ClientResponse | None:
-        """
-        The last received response, if any.
-        """
-        return self.http_session.response
-
-    @property
     def _persisting_http_session(self) -> PersistingHttpClientSession | None:
         """
         The persisting HTTP session, if any.
         """
-        if isinstance(self.http_session.inner, PersistingHttpClientSession):
-            return self.http_session.inner
+        if isinstance(self.http_session, PersistingHttpClientSession):
+            return self.http_session
         return None
 
     @classmethod
@@ -209,11 +201,8 @@ class AsyncGithubFineGrainedTokenClientSession:
             self._persisting_http_session.load(suppress_errors)
 
     async def _get_parsed_response_html(
-        self, response: aiohttp.ClientResponse | None = None
+        self, response: aiohttp.ClientResponse
     ) -> BeautifulSoup:
-        if response is None:
-            response = self._response
-        assert response is not None
         response_text = await response.text()
         return BeautifulSoup(response_text, "html.parser")
 
@@ -233,120 +222,188 @@ class AsyncGithubFineGrainedTokenClientSession:
             raise UnexpectedContentError("no authenticity token found on page")
         return authenticity_token
 
-    async def _handle_login(self) -> bool:
+    def _make_url(self, path: str) -> str:
+        return self.base_url.rstrip("/") + path
+
+    @asynccontextmanager
+    async def _handle_login(
+        self, response: aiohttp.ClientResponse
+    ) -> AsyncIterator[tuple[bool, aiohttp.ClientResponse]]:
         """
-        Automatically handle login if necessary, otherwise do nothing.
+        Handle login intercept.
+
+        To be used as a context manager.
+
+        Args:
+            response: Response which may or may not contain an intercept. Will
+                be closed if there was one.
 
         Returns:
-            `True` if a login was actually performed, `False` if nothing was
-            done.
+            A tuple of a boolean and a response. The boolean will be `True` if
+            a login was actually performed, `False` if nothing was done. The
+            response will be the new response after logging in or the old one
+            if nothing was done.
         """
-        response = self._response
-        assert response is not None  # make Mypy happy
-        if not str(response.url).startswith(
-            self.base_url.rstrip("/") + "/login"
-        ):
+        if not str(response.url).startswith(self._make_url("/login")):
             self.logger.info("no login required")
-            return False
+            yield (False, response)
         else:
             self.logger.info("login required")
-        destination_url = response.url.query.get("return_to")
-        html = await self._get_parsed_response_html()
-        hidden_inputs = {
-            input_elem["name"]: input_elem["value"]
-            for input_elem in html.select('form input[type="hidden"]')
-            if "value" in input_elem.attrs
-        }
-        await self.http_session.post(
-            self.base_url.rstrip("/") + "/session",
-            data={
-                "login": self.credentials.username,
-                "password": self.credentials.password,
-                **hidden_inputs,
-            },
-        )
-        assert self._response is not None  # make Mypy happy
-        if str(self._response.url).startswith(
-            self.base_url.rstrip("/") + "/session"
-        ):
-            login_response_html = await self._get_parsed_response_html()
-            login_error = one_or_none(
-                login_response_html.select("#js-flash-container")
-            )
-            if login_error is not None:
-                raise LoginError(login_error.get_text().strip())
-            raise UnexpectedContentError(
-                "ended up back on login page but not sure why"
-            )
-        if (
-            destination_url is not None
-            and str(self._response.url) != destination_url
-        ):
-            raise UnexpectedPageError(
-                f"ended up on unexpected page {self._response.url} after login"
-                f" (expected {destination_url})"
-            )
-        return True
+            destination_url = response.url.query.get("return_to")
+            html = await self._get_parsed_response_html(response)
+            hidden_inputs = {
+                input_elem["name"]: input_elem["value"]
+                for input_elem in html.select('form input[type="hidden"]')
+                if "value" in input_elem.attrs
+            }
+            response.close()  # free up connection for next request
+            async with self.http_session.post(
+                self._make_url("/session"),
+                data={
+                    "login": self.credentials.username,
+                    "password": self.credentials.password,
+                    **hidden_inputs,
+                },
+            ) as response:
+                if str(response.url).startswith(self._make_url("/session")):
+                    html = await self._get_parsed_response_html(response)
+                    login_error = one_or_none(
+                        html.select("#js-flash-container")
+                    )
+                    if login_error is not None:
+                        raise LoginError(login_error.get_text().strip())
+                    raise UnexpectedContentError(
+                        "ended up back on login page but not sure why"
+                    )
+                if (
+                    destination_url is not None
+                    and str(response.url) != destination_url
+                ):
+                    raise UnexpectedPageError(
+                        f"ended up on unexpected page {response.url} after "
+                        f"login (expected {destination_url})"
+                    )
+                yield (True, response)
 
-    async def _confirm_password(self) -> None:
-        html = await self._get_parsed_response_html()
+    @asynccontextmanager
+    async def _confirm_password(
+        self, response: aiohttp.ClientResponse
+    ) -> AsyncIterator[aiohttp.ClientResponse]:
+        """
+        Handle password confirmation intercept.
+
+        To be used as a context manager.
+
+        Args:
+            response: Response which may or may not contain an intercept. Will
+                be closed if there was one.
+
+        Returns:
+            A response which will be the new response after confirming the
+            password or the old one if nothing was done.
+        """
+        html = await self._get_parsed_response_html(response)
         confirm_access_heading = one_or_none(html.select("#sudo > div > h1"))
         if confirm_access_heading is None:
             self.logger.info("no password confirmation required")
-            return
+            yield response
         else:
             self.logger.info("password confirmation required")
-        # TODO put this in helper method with form tree as arg
-        hidden_inputs = {
-            input_elem["name"]: input_elem["value"]
-            for input_elem in html.select('form input[type="hidden"]')
-        }
-        form = one_or_none(html.select("form"))
-        if form is None:
-            raise UnexpectedContentError("no form found on page")
-        assert self._response is not None  # make Mypy happy
-        response = await self.http_session.post(
-            (
-                form_action
-                if any(
-                    (
-                        form_action := expect_single_str(form["action"])
-                    ).startswith(scheme)
-                    for scheme in ["https://", "http://"]
-                )
-                else self.base_url.rstrip("/") + form_action
-            ),
-            data={
-                "sudo_password": self.credentials.password,
-                **hidden_inputs,
-            },
-            headers={"Referer": str(self._response.url)},
-        )
-        if str(response.url).startswith(
-            self.base_url.rstrip("/") + "/sessions/sudo"
-        ):
-            login_response_text = await response.text()
-            login_response_html = BeautifulSoup(
-                login_response_text, "html.parser"
-            )
-            login_error = one_or_none(
-                login_response_html.select("#js-flash-container")
-            )
-            if login_error is not None:
-                raise LoginError(login_error.get_text().strip())
-            raise UnexpectedContentError(
-                "ended up back on login page but not sure why"
-            )
+            # TODO put this in helper method with form tree as arg
+            hidden_inputs = {
+                input_elem["name"]: input_elem["value"]
+                for input_elem in html.select('form input[type="hidden"]')
+            }
+            form = one_or_none(html.select("form"))
+            if form is None:
+                raise UnexpectedContentError("no form found on page")
+            response.close()  # free up connection for next request
+            async with self.http_session.post(
+                (
+                    form_action
+                    if any(
+                        (
+                            form_action := expect_single_str(form["action"])
+                        ).startswith(scheme)
+                        for scheme in ["https://", "http://"]
+                    )
+                    else self._make_url(form_action)
+                ),
+                data={
+                    "sudo_password": self.credentials.password,
+                    **hidden_inputs,
+                },
+                headers={"Referer": str(response.url)},
+            ) as response:
+                if str(response.url).startswith(
+                    self.base_url.rstrip("/") + "/sessions/sudo"
+                ):
+                    html = await self._get_parsed_response_html(response)
+                    login_error = one_or_none(
+                        html.select("#js-flash-container")
+                    )
+                    if login_error is not None:
+                        raise LoginError(login_error.get_text().strip())
+                    raise UnexpectedContentError(
+                        "ended up back on login page but not sure why"
+                    )
+                yield response
+
+    @asynccontextmanager
+    async def _handle_auth(
+        self, response: aiohttp.ClientResponse
+    ) -> AsyncIterator[aiohttp.ClientResponse]:
+        """
+        Handle auth-related intercepts (login & confirm password).
+
+        To be used as a context manager.
+
+        Args:
+            response: Response which may or may not contain an intercept. Will
+                be closed if there was one.
+
+        Returns:
+            A response which will be the new response after confirming the
+            password or the old one if nothing was done.
+        """
+        async with self._handle_login(response) as (
+            _,
+            response,
+        ), self._confirm_password(response) as response:
+            yield response
+
+    def _get(self, path: str, **kwargs) -> aiohttp.ClientResponse:
+        return self.http_session.get(self._make_url(path), **kwargs)
+
+    def _post(self, path: str, **kwargs) -> aiohttp.ClientResponse:
+        return self.http_session.post(self._make_url(path), **kwargs)
+
+    @asynccontextmanager
+    async def _auth_handling_get(
+        self, path, **kwargs
+    ) -> AsyncIterator[aiohttp.ClientResponse]:
+        async with self._get(path, **kwargs) as response, self._handle_auth(
+            response
+        ) as response:
+            yield response
+
+    @asynccontextmanager
+    async def _auth_handling_post(
+        self, path, **kwargs
+    ) -> AsyncIterator[aiohttp.ClientResponse]:
+        async with self._post(path, **kwargs) as response, self._handle_auth(
+            response
+        ) as response:
+            yield response
 
     async def _get_repository_id(
         self, target_name: str, repository_name: str
     ) -> int:
-        await self.http_session.get(
-            self.base_url.rstrip("/")
-            + "/settings/personal-access-tokens/suggestions",
+        async with self._get(
+            "/settings/personal-access-tokens/suggestions",
             params={"target_name": target_name, "q": repository_name},
-        )
-        html = await self._get_parsed_response_html()
+        ) as response:
+            html = await self._get_parsed_response_html(response)
         for button_elem in html.select("button"):
             input_elem = one_or_none(button_elem.select("input"))
             assert input_elem is not None
@@ -398,15 +455,11 @@ class AsyncGithubFineGrainedTokenClientSession:
         if permissions is None:
             permissions = {}
         # /normalize args
-        await self.http_session.get(
-            self.base_url.rstrip("/") + "/settings/personal-access-tokens/new"
-        )
-        # login if necessary
-        await self._handle_login()
-        # confirm password if necessary
-        await self._confirm_password()
+        async with self._auth_handling_get(
+            "/settings/personal-access-tokens/new"
+        ) as response:
+            html = await self._get_parsed_response_html(response)
         # get dynamic form data
-        html = await self._get_parsed_response_html()
         authenticity_token = self._get_authenticity_token(
             html, form_id="new_user_programmatic_access"
         )
@@ -430,8 +483,8 @@ class AsyncGithubFineGrainedTokenClientSession:
             ]
         else:
             raise ValueError(f"invalid scope {scope}")
-        await self.http_session.post(
-            self.base_url.rstrip("/") + "/settings/personal-access-tokens",
+        async with self._auth_handling_post(
+            "/settings/personal-access-tokens",
             data={
                 "authenticity_token": authenticity_token,
                 "user_programmatic_access[name]": name,
@@ -452,12 +505,12 @@ class AsyncGithubFineGrainedTokenClientSession:
                     for permission_name in ALL_PERMISSION_NAMES
                 },
             },
-        )
-        # confirm password again if necessary (rare but can happen)
-        # TODO unsure if we have to re-send the form data in this case...
-        await self._confirm_password()
+        ) as response:
+            # ^ confirm password again if necessary (rare but can happen)
+            # TODO unsure if we have to re-send the form data in this case...
+            #
+            html = await self._get_parsed_response_html(response)
         # get value of newly created token
-        html = await self._get_parsed_response_html()
         token_elem = one_or_none(html.select("#new-access-token"))
         if token_elem is None:
             error_elem = one_or_none(html.select(".error"))
@@ -488,9 +541,11 @@ class AsyncGithubFineGrainedTokenClientSession:
             `True` if a login was actually performed, `False` if nothing was
             done.
         """
-        await self.http_session.get(self.base_url.rstrip("/") + "/login")
-        # login if necessary
-        return await self._handle_login()
+        async with self._get("/login") as response, self._handle_login(
+            response
+        ) as (did_login, response):
+            pass
+        return did_login
 
     @_with_lock
     async def get_tokens_minimal(
@@ -523,15 +578,10 @@ class AsyncGithubFineGrainedTokenClientSession:
     async def _get_tokens_minimal_internal(
         self,
     ) -> Sequence[_FineGrainedTokenMinimalInternalInfo]:
-        await self.http_session.get(
-            self.base_url.rstrip("/") + "/settings/tokens?type=beta"
-        )
-        # login if necessary
-        await self._handle_login()
-        # confirm password if necessary
-        await self._confirm_password()
-        # get list
-        html = await self._get_parsed_response_html()
+        async with self._auth_handling_get(
+            "/settings/tokens?type=beta"
+        ) as response:
+            html = await self._get_parsed_response_html(response)
         listgroup_elem = one_or_none(html.select(".listgroup"))
         if not listgroup_elem:
             raise UnexpectedContentError("no token list found on page")
@@ -575,23 +625,21 @@ class AsyncGithubFineGrainedTokenClientSession:
         return await self._get_token_expiration(token_id)
 
     async def _get_token_expiration(self, token_id: int) -> datetime:
-        # NOTE: no lock (efficiency)! => don't rely on self._response
-        response = await self.http_session.get(
-            self.base_url.rstrip("/")
-            + f"/settings/personal-access-tokens/{token_id}/expiration?page=1"
-        )
-        html = await self._get_parsed_response_html(response)
-        expires_str = html.get_text().strip()
-        if any(
-            expires_str.lower().startswith(x)
-            for x in ("expires on ", "expired on ")
-        ):
-            expires_str = expires_str[len("expire* on ") :]
-        expires = dateparser.parse(expires_str)
-        if expires is None:
-            raise UnexpectedContentError(
-                f"could not parse expiration date {expires_str}"
-            )
+        async with self._get(
+            f"/settings/personal-access-tokens/{token_id}/expiration?page=1"
+        ) as response:
+            html = await self._get_parsed_response_html(response)
+            expires_str = html.get_text().strip()
+            if any(
+                expires_str.lower().startswith(x)
+                for x in ("expires on ", "expired on ")
+            ):
+                expires_str = expires_str[len("expire* on ") :]
+            expires = dateparser.parse(expires_str)
+            if expires is None:
+                raise UnexpectedContentError(
+                    f"could not parse expiration date {expires_str}"
+                )
         return expires
 
     @_with_lock
@@ -647,16 +695,10 @@ class AsyncGithubFineGrainedTokenClientSession:
         """
         See get_token_info - this is just it without a lock.
         """
-        await self.http_session.get(
-            self.base_url.rstrip("/")
-            + f"/settings/personal-access-tokens/{token_id}"
-        )
-        # login if necessary
-        await self._handle_login()
-        # confirm password if necessary
-        await self._confirm_password()
-        # get dynamic form data
-        html = await self._get_parsed_response_html()
+        async with self._auth_handling_get(
+            f"/settings/personal-access-tokens/{token_id}"
+        ) as response:
+            html = await self._get_parsed_response_html(response)
         # parse name
         name = exactly_one(html.select("h2 > p")).get_text().strip()
         # parse creation date
@@ -751,9 +793,8 @@ class AsyncGithubFineGrainedTokenClientSession:
         # delete
         id_ = info_by_name[name].id
         self.logger.info(f"deleting token {name!r}")
-        await self.http_session.post(
-            self.base_url.rstrip("/")
-            + f"/settings/personal-access-tokens/{id_}",
+        async with self._auth_handling_post(
+            f"/settings/personal-access-tokens/{id_}",
             data={
                 "_method": "delete",
                 "authenticity_token": (
@@ -765,12 +806,8 @@ class AsyncGithubFineGrainedTokenClientSession:
                     self.base_url.rstrip("/") + "/settings/tokens?type=beta"
                 )
             },
-        )
-        # confirm password if necessary
-        html = await self._get_parsed_response_html()
-        await self._confirm_password()
-        # check that it worked
-        html = await self._get_parsed_response_html()
+        ) as response:
+            html = await self._get_parsed_response_html(response)
         alert = html.select_one('div[role="alert"]')
         if alert is None:
             raise UnexpectedContentError("deletion result not found on page")
@@ -789,15 +826,10 @@ class AsyncGithubFineGrainedTokenClientSession:
         permissions by iterating over the ``PermissionType`` enum instead,
         which has the advantage of being a fully local operation.
         """
-        await self.http_session.get(
-            self.base_url.rstrip("/") + "/settings/personal-access-tokens/new"
-        )
-        # login if necessary
-        await self._handle_login()
-        # confirm password if necessary
-        await self._confirm_password()
-        # get dynamic form data
-        html = await self._get_parsed_response_html()
+        async with self._auth_handling_get(
+            "/settings/personal-access-tokens/new"
+        ) as response:
+            html = await self._get_parsed_response_html(response)
         possible_permissions_dict: dict[str, list] = {}
         for permission_group in ["repository", "user"]:
             possible_permissions_dict[permission_group] = []

@@ -565,7 +565,22 @@ async def test_login(fake_github, credentials):
         await client.login()
 
 
-async def test_wrong_username(fake_github):
+async def test_login_with_persistence(fake_github, credentials, tmp_path):
+    async with async_github_fine_grained_token_client(
+        credentials,
+        base_url=fake_github.base_url,
+        persist_to=tmp_path,
+    ) as client:
+        assert await client.login()  # had to login => returns True
+    async with async_github_fine_grained_token_client(
+        credentials,
+        base_url=fake_github.base_url,
+        persist_to=tmp_path,
+    ) as client:
+        assert not await client.login()  # no login needed => returns False
+
+
+async def test_login_wrong_username(fake_github):
     async with async_github_fine_grained_token_client(
         GithubCredentials("wronguser", "wrongpw"),
         base_url=fake_github.base_url,
@@ -574,7 +589,7 @@ async def test_wrong_username(fake_github):
             await client.login()
 
 
-async def test_wrong_password(fake_github, credentials):
+async def test_login_wrong_password(fake_github, credentials):
     async with async_github_fine_grained_token_client(
         GithubCredentials(credentials.username, "wrongpw"),
         base_url=fake_github.base_url,
