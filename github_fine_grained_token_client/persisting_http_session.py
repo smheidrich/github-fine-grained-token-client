@@ -1,18 +1,62 @@
+from contextlib import contextmanager
+from functools import wraps
 from logging import Logger, getLogger
 from pathlib import Path
 from traceback import print_exc
 from typing import Type, TypeVar
 from warnings import warn
 
-from aiohttp import CookieJar
+import aiohttp
 
 from .abstract_http_session import AbstractHttpSession
 
 cookies_filename = "cookies.pickle"
 
-T = TypeVar("T", bound="PersistingHttpClientSession")
-
 default_logger = getLogger(__name__)
+
+
+class ResponseContext:
+    """
+    Response that doubles as an awaitable and a context manager.
+
+    Same kind of thing that aiohttp uses for its responses, but theirs isn't
+    part of their public API so we replicate it here. This acts as a wrapper
+    around their thing.
+
+    Also, we add functionality for configuring a post-exit callback, so there
+    is some justification for having it here again beyond reimplementing a
+    private class...
+    """
+
+    def __init__(self, aiohttp_response_context, post_exit_cb=lambda: None):
+        self.aiohttp_response_context = aiohttp_response_context
+        self.post_exit_cb = post_exit_cb
+
+    async def __aenter__(self) -> aiohttp.ClientResponse:
+        return await self.aiohttp_response_context.__aenter__()
+
+    async def __aexit__(self, *args, **kwargs) -> None:
+        try:
+            r = await self.aiohttp_response_context.__aexit__(*args, **kwargs)
+        finally:
+            self.post_exit_cb(*args, **kwargs)
+        return r
+
+    async def __await__(self) -> aiohttp.ClientResponse:
+        return await self.aiohttp_response_context.__await__()
+
+
+def context_manager_to_response_context(cm):
+    @wraps(cm)
+    def _cm(*args, **kwargs):
+        context = cm(*args, **kwargs)
+        inner_response_context = context.__enter__()
+        return ResponseContext(inner_response_context, context.__exit__)
+
+    return _cm
+
+
+T = TypeVar("T", bound="PersistingHttpClientSession")
 
 
 class PersistingHttpClientSession(AbstractHttpSession):
@@ -49,7 +93,7 @@ class PersistingHttpClientSession(AbstractHttpSession):
         return self.persist_to / cookies_filename
 
     @property
-    def cookie_jar(self) -> CookieJar:
+    def cookie_jar(self) -> aiohttp.CookieJar:
         return self.inner.cookie_jar
 
     @classmethod
@@ -73,7 +117,7 @@ class PersistingHttpClientSession(AbstractHttpSession):
                 cookies from disk. Doesn't suppress all errors, only those
                 caused by e.g. faulty I/O and missing or malformed files.
         """
-        cookie_jar = CookieJar()
+        cookie_jar = aiohttp.CookieJar()
         try:
             cookie_jar.load(self.cookies_path)
         except Exception:
@@ -95,16 +139,24 @@ class PersistingHttpClientSession(AbstractHttpSession):
         # save cookies using provided method (dumb b/c uses pickle but oh well)
         self.inner.cookie_jar.save(self.cookies_path)
 
-    async def get(self, *args, **kwargs):
+    @context_manager_to_response_context
+    @contextmanager
+    def get(self, *args, **kwargs):
         self.logger.debug("GET: %r, %r", args, kwargs)
-        response = await self.inner.get(*args, **kwargs)
-        self.save()
-        return response
+        response_context = self.inner.get(*args, **kwargs)
+        try:
+            yield response_context
+        finally:
+            self.save()
 
-    async def post(self, *args, **kwargs):
+    @context_manager_to_response_context
+    @contextmanager
+    def post(self, *args, **kwargs):
         self.logger.debug("POST: %r, %r", args, kwargs)
-        response = await self.inner.post(*args, **kwargs)
-        self.save()
-        return response
+        response_context = self.inner.post(*args, **kwargs)
+        try:
+            yield response_context
+        finally:
+            self.save()
 
     # ... add more methods here as the need arises
