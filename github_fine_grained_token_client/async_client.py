@@ -244,7 +244,7 @@ class AsyncGithubFineGrainedTokenClientSession:
                 for input_elem in html.select('form input[type="hidden"]')
                 if "value" in input_elem.attrs
             }
-            response.close()  # free up connection for next request
+            response.release()  # free up connection for next request
             async with self.http_session.post(
                 self._make_url("/session"),
                 data={
