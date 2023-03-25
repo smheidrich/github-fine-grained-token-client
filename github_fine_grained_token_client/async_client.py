@@ -2,12 +2,10 @@
 `async`/`await`-based GitHub token client
 """
 import asyncio
-from asyncio import Lock
 from collections.abc import Mapping
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
-from functools import wraps
 from logging import Logger, getLogger
 from pathlib import Path
 from typing import AsyncIterator, Sequence, Type, TypeVar, cast
@@ -125,15 +123,6 @@ async def async_github_fine_grained_token_client(
         )
 
 
-def _with_lock(meth):
-    @wraps(meth)
-    async def _with_lock(self, *args, **kwargs):
-        async with self._lock:
-            return await meth(self, *args, **kwargs)
-
-    return _with_lock
-
-
 T = TypeVar("T", bound="AsyncGithubFineGrainedTokenClientSession")
 
 
@@ -173,7 +162,6 @@ class AsyncGithubFineGrainedTokenClientSession:
         self.credentials = credentials
         self.base_url = base_url
         self.logger = logger
-        self._lock = Lock()
 
     @property
     def _persisting_http_session(self) -> PersistingHttpClientSession | None:
@@ -419,7 +407,6 @@ class AsyncGithubFineGrainedTokenClientSession:
             f"no such repository: {target_name}/{repository_name}"
         )
 
-    @_with_lock
     async def create_token(
         self,
         name: str,
@@ -523,7 +510,6 @@ class AsyncGithubFineGrainedTokenClientSession:
         token_value = expect_single_str(token_elem["value"])
         return token_value
 
-    @_with_lock
     async def login(self) -> bool:
         """
         Log into GitHub if necessary.
@@ -547,7 +533,6 @@ class AsyncGithubFineGrainedTokenClientSession:
             pass
         return did_login
 
-    @_with_lock
     async def get_tokens_minimal(
         self,
     ) -> Sequence[FineGrainedTokenBulkInfo]:
@@ -562,12 +547,6 @@ class AsyncGithubFineGrainedTokenClientSession:
         Returns:
             List of tokens.
         """
-        # the point of this method is just to add a lock around this one:
-        return await self._get_tokens_minimal()
-
-    async def _get_tokens_minimal(
-        self,
-    ) -> Sequence[FineGrainedTokenBulkInfo]:
         return [
             FineGrainedTokenBulkInfo(
                 id=info.id, name=info.name, last_used_str=info.last_used_str
@@ -610,7 +589,6 @@ class AsyncGithubFineGrainedTokenClientSession:
             token_list.append(entry)
         return token_list
 
-    @_with_lock
     async def get_token_expiration(self, token_id: int) -> datetime:
         """
         Retrieve the expiration date of a single fine-grained token.
@@ -621,10 +599,6 @@ class AsyncGithubFineGrainedTokenClientSession:
         Returns:
             The fine-grained token's expiration date.
         """
-        # the point of this method is just to add a lock around this one:
-        return await self._get_token_expiration(token_id)
-
-    async def _get_token_expiration(self, token_id: int) -> datetime:
         async with self._get(
             f"/settings/personal-access-tokens/{token_id}/expiration?page=1"
         ) as response:
@@ -642,7 +616,6 @@ class AsyncGithubFineGrainedTokenClientSession:
                 )
         return expires
 
-    @_with_lock
     async def get_tokens(
         self,
     ) -> Sequence[FineGrainedTokenStandardInfo]:
@@ -657,9 +630,9 @@ class AsyncGithubFineGrainedTokenClientSession:
         Returns:
             List of tokens.
         """
-        summaries = await self._get_tokens_minimal()
+        summaries = await self.get_tokens_minimal()
         fetch_expiration_tasks = [
-            asyncio.create_task(self._get_token_expiration(summary.id))
+            asyncio.create_task(self.get_token_expiration(summary.id))
             for summary in summaries
         ]
         expiration_dates = await asyncio.gather(*fetch_expiration_tasks)
@@ -673,7 +646,6 @@ class AsyncGithubFineGrainedTokenClientSession:
             for summary, expiration_date in zip(summaries, expiration_dates)
         ]
 
-    @_with_lock
     async def get_token_info(
         self, token_id: int
     ) -> FineGrainedTokenIndividualInfo:
@@ -686,14 +658,6 @@ class AsyncGithubFineGrainedTokenClientSession:
 
         Returns:
             Token information.
-        """
-        return await self._get_token_info(token_id)
-
-    async def _get_token_info(
-        self, token_id: int
-    ) -> FineGrainedTokenIndividualInfo:
-        """
-        See get_token_info - this is just it without a lock.
         """
         async with self._auth_handling_get(
             f"/settings/personal-access-tokens/{token_id}"
@@ -718,7 +682,7 @@ class AsyncGithubFineGrainedTokenClientSession:
         # parse permissions
         permissions = self._parse_token_permissions(html)
         # get expiration date
-        expiration_date = await self._get_token_expiration(token_id)
+        expiration_date = await self.get_token_expiration(token_id)
         return FineGrainedTokenIndividualInfo(
             id=token_id,
             name=name,
@@ -727,7 +691,6 @@ class AsyncGithubFineGrainedTokenClientSession:
             permissions=permissions,
         )
 
-    @_with_lock
     async def get_complete_persistent_token_info(
         self, token_id: int
     ) -> FineGrainedTokenIndividualInfo:
@@ -744,11 +707,11 @@ class AsyncGithubFineGrainedTokenClientSession:
         Returns:
             Token information.
         """
-        bulk_tokens_info = await self._get_tokens_minimal()
+        bulk_tokens_info = await self.get_tokens_minimal()
         bulk_token_info = exactly_one(
             [t for t in bulk_tokens_info if t.id == token_id]
         )
-        individual_token_info = await self._get_token_info(token_id)
+        individual_token_info = await self.get_token_info(token_id)
         return FineGrainedTokenCompletePersistentInfo(
             id=token_id,
             name=individual_token_info.name,
@@ -775,7 +738,6 @@ class AsyncGithubFineGrainedTokenClientSession:
             )
         return permissions_dict
 
-    @_with_lock
     async def delete_token(self, name: str) -> None:
         """
         Delete fine-grained token from GitHub.
@@ -816,7 +778,6 @@ class AsyncGithubFineGrainedTokenClientSession:
             raise UnexpectedContentError(f"deletion failed: {alert_text!r}")
         self.logger.info(f"deleted token {name!r}")
 
-    @_with_lock
     async def get_possible_permissions(self) -> PosiblePermissions:
         """
         Retrieve list of possible permissions one can use for tokens.
