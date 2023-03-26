@@ -28,22 +28,22 @@ class ResponseContext:
     private class...
     """
 
-    def __init__(self, aiohttp_response_context, post_exit_cb=lambda: None):
+    def __init__(self, aiohttp_response_context, post_request_cb=lambda: None):
         self.aiohttp_response_context = aiohttp_response_context
-        self.post_exit_cb = post_exit_cb
+        self.post_request_cb = post_request_cb
 
     async def __aenter__(self) -> aiohttp.ClientResponse:
         return await self.aiohttp_response_context.__aenter__()
 
     async def __aexit__(self, *args, **kwargs) -> None:
-        try:
-            r = await self.aiohttp_response_context.__aexit__(*args, **kwargs)
-        finally:
-            self.post_exit_cb(*args, **kwargs)
-        return r
+        return await self.aiohttp_response_context.__aexit__(*args, **kwargs)
 
     async def __await__(self) -> aiohttp.ClientResponse:
-        return await self.aiohttp_response_context.__await__()
+        try:
+            r = await self.aiohttp_response_context.__await__()
+        finally:
+            self.post_request_cb()
+        return r
 
 
 def context_manager_to_response_context(cm):
