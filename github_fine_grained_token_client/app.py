@@ -10,7 +10,6 @@ from typing import Any
 from yachalk import chalk
 
 from .async_client import (
-    ALL_PERMISSION_NAMES,
     AsyncGithubFineGrainedTokenClientSession,
     PermissionValue,
     async_github_fine_grained_token_client,
@@ -20,6 +19,12 @@ from .credentials import (
     get_credentials_from_keyring_and_prompt,
     prompt_for_credentials,
     save_credentials_to_keyring,
+)
+from .dev import PosiblePermissions, PossiblePermission
+from .permissions import (
+    AccountPermission,
+    AnyPermissionKey,
+    RepositoryPermission,
 )
 
 max_login_attempts = 3
@@ -97,7 +102,7 @@ class App:
         token_name: str,
         scope: FineGrainedTokenScope,
         description: str = "",
-        permissions: Mapping[str, PermissionValue] | None = None,
+        permissions: Mapping[AnyPermissionKey, PermissionValue] | None = None,
     ) -> None:
         async def _run():
             async with self._logged_in_error_handling_session() as session:
@@ -114,24 +119,71 @@ class App:
 
         asyncio.run(_run())
 
-    def list_possible_permissions(self) -> None:
-        for permission_name in ALL_PERMISSION_NAMES:
-            print(permission_name)
-
-    def list_fetched_possible_permissions(self) -> None:
+    def list_fetched_possible_permissions(
+        self, fetch=False, codegen=False
+    ) -> None:
         async def _run():
-            async with self._logged_in_error_handling_session() as session:
-                possible_permissions = await session.get_possible_permissions()
-            for group in ["repository", "account"]:
-                print(chalk.bold(f"{group.capitalize()}:"))
-                for possible_permission in getattr(
-                    possible_permissions, group
-                ):
-                    print(
-                        f"  {chalk.bold(possible_permission.name)} "
-                        f"({possible_permission.identifier})\n"
-                        f"    {possible_permission.description}"
+            if fetch:
+                async with self._logged_in_error_handling_session() as session:
+                    possible_permissions = (
+                        await session.get_possible_permissions()
                     )
+            else:
+                possible_permissions = PosiblePermissions(
+                    account=[
+                        PossiblePermission(
+                            p.value, p.full_name, "", p.allowed_values
+                        )
+                        for p in AccountPermission
+                    ],
+                    repository=[
+                        PossiblePermission(
+                            p.value, p.full_name, "", p.allowed_values
+                        )
+                        for p in RepositoryPermission
+                    ],
+                )
+            for group in ["repository", "account"]:
+                if codegen:
+                    print(f"class {group.capitalize()}Permission(...):")
+                    for possible_permission in getattr(
+                        possible_permissions, group
+                    ):
+                        print(
+                            f"    {possible_permission.identifier.upper()} = "
+                            f'"{possible_permission.identifier}", '
+                            f'"{possible_permission.name}", ('
+                            + ", ".join(
+                                f"PermissionValue.{allowed_value.name}"
+                                for allowed_value in (
+                                    possible_permission.allowed_values
+                                )
+                            )
+                            + ")"
+                        )
+                    print()
+                else:
+                    print(chalk.bold(f"{group.capitalize()}:"))
+                    for possible_permission in getattr(
+                        possible_permissions, group
+                    ):
+                        print(
+                            f"  {chalk.bold(possible_permission.name)} "
+                            f"({possible_permission.identifier})"
+                            + (
+                                f"\n    {possible_permission.description}"
+                                if fetch
+                                else ""
+                            )
+                            + "\n    Possible values: "
+                            + ", ".join(
+                                allowed_value.value
+                                for allowed_value in (
+                                    possible_permission.allowed_values
+                                )
+                                if allowed_value != PermissionValue.NONE
+                            )
+                        )
 
         asyncio.run(_run())
 
@@ -148,10 +200,11 @@ class App:
             print(chalk.bold(token.name))
             for f in fields(token):
                 if f.name == "permissions":
+                    print(f"  {f.name}:")
                     permissions = getattr(token, f.name)
-                    for permission, value in permissions.items():
+                    for key, value in permissions.items():
                         if value != PermissionValue.NONE:
-                            print(f"    {permission}: {value.value}")
+                            print(f"    {key.value}: {value.value}")
                     continue
                 print(f"  {f.name}: {getattr(token, f.name)}")
 

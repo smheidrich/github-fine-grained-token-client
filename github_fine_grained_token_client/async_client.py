@@ -23,7 +23,6 @@ from .common import (
     FineGrainedTokenScope,
     FineGrainedTokenStandardInfo,
     LoginError,
-    PermissionValue,
     PublicRepositories,
     RepositoryNotFoundError,
     SelectRepositories,
@@ -34,53 +33,17 @@ from .common import (
 )
 from .credentials import GithubCredentials
 from .dev import PosiblePermissions, PossiblePermission
+from .permissions import (
+    ALL_PERMISSION_KEYS,
+    AnyPermissionKey,
+    PermissionValue,
+    permission_from_str,
+)
 from .persisting_http_session import PersistingHttpClientSession
 from .utils.bs4 import expect_single_str, expect_single_str_or_none
 from .utils.sequences import exactly_one, one_or_none
 
 default_logger = getLogger(__name__)
-
-ALL_PERMISSION_NAMES = [
-    "actions",
-    "administration",
-    "security_events",
-    "codespaces",
-    "codespaces_lifecycle_admin",
-    "codespaces_metadata",
-    "codespaces_secrets",
-    "statuses",
-    "contents",
-    "vulnerability_alerts",
-    "dependabot_secrets",
-    "deployments",
-    "discussions",
-    "environments",
-    "issues",
-    "merge_queues",
-    "metadata",
-    "pages",
-    "pull_requests",
-    "repository_announcement_banners",
-    "secret_scanning_alerts",
-    "secrets",
-    "actions_variables",
-    "repository_hooks",
-    "workflows",
-    "blocking",
-    "codespaces_user_secrets",
-    "emails",
-    "followers",
-    "gpg_keys",
-    "gists",
-    "keys",
-    "interaction_limits",
-    "plan",
-    "private_repository_invitations",
-    "profile",
-    "git_signing_ssh_public_keys",
-    "starring",
-    "watching",
-]
 
 
 @dataclass
@@ -414,7 +377,7 @@ class AsyncGithubFineGrainedTokenClientSession:
         description: str = "",
         resource_owner: str | None = None,
         scope: FineGrainedTokenScope = PublicRepositories(),
-        permissions: Mapping[str, PermissionValue] | None = None,
+        permissions: Mapping[AnyPermissionKey, PermissionValue] | None = None,
     ) -> str:
         """
         Create a new fine-grained token on GitHub.
@@ -427,8 +390,8 @@ class AsyncGithubFineGrainedTokenClientSession:
             resource_owner: Owner of the token to create. Defaults to whatever
                 GitHub selects by default (always logged-in user I guess).
             scope: The token's desired scope.
-            permissions: Permissions the token should have. Must be a mapping
-                from elements of ``ALL_PERMISSION_NAMES`` to the desired value.
+            permissions: Permissions the token should have, as a mapping from
+                permissions to the desired value (read or write = read+write).
 
         Returns:
             The created token.
@@ -484,12 +447,13 @@ class AsyncGithubFineGrainedTokenClientSession:
                 "install_target": install_target,
                 "repository_ids[]": repository_ids,
                 **{
-                    f"integration[default_permissions][{permission_name}]": (
+                    "integration[default_permissions]"
+                    f"[{permission_key.value}]": (
                         permissions.get(
-                            permission_name, PermissionValue.NONE
+                            permission_key, PermissionValue.NONE
                         ).value
                     )
-                    for permission_name in ALL_PERMISSION_NAMES
+                    for permission_key in ALL_PERMISSION_KEYS
                 },
             },
         ) as response:
@@ -721,7 +685,9 @@ class AsyncGithubFineGrainedTokenClientSession:
             last_used_str=bulk_token_info.last_used_str,
         )
 
-    def _parse_token_permissions(self, html) -> dict[str, PermissionValue]:
+    def _parse_token_permissions(
+        self, html
+    ) -> dict[AnyPermissionKey, PermissionValue]:
         """
         Parse a token's permissions from its own page.
         """
@@ -730,8 +696,9 @@ class AsyncGithubFineGrainedTokenClientSession:
         for permission_elem in permission_elems:
             full_identifier = permission_elem["name"]
             identifier = full_identifier.split("[")[-1].strip("]")  # TODO refa
+            key = permission_from_str(identifier)
             value = PermissionValue(permission_elem["value"])
-            permissions_dict[identifier] = value
+            permissions_dict[key] = value
         if not permissions_dict:
             raise UnexpectedContentError(
                 "no permission inputs found for token"
@@ -806,12 +773,15 @@ class AsyncGithubFineGrainedTokenClientSession:
                     .get_text()
                     .strip()
                 )
-                full_identifier = expect_single_str(
-                    permission_elem.select("input")[0]["name"]
+                input_elems = permission_elem.select("input")
+                full_identifier = expect_single_str(input_elems[0]["name"])
+                allowed_values = tuple(
+                    PermissionValue(expect_single_str(input_elem["value"]))
+                    for input_elem in input_elems
                 )
                 identifier = full_identifier.split("[")[-1].strip("]")
                 possible_permission = PossiblePermission(
-                    identifier, name, description
+                    identifier, name, description, allowed_values
                 )
                 possible_permissions_dict[permission_group].append(
                     possible_permission
