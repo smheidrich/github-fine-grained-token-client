@@ -25,6 +25,7 @@ from github_fine_grained_token_client.common import (
     PermissionValue,
 )
 from github_fine_grained_token_client.credentials import GithubCredentials
+from github_fine_grained_token_client.permissions import RepositoryPermission
 from tests.utils_for_tests import assert_lhs_fields_match
 
 logger = getLogger(__name__)
@@ -107,7 +108,7 @@ async def fake_github(aiohttp_server, credentials, request):
                 created=datetime(2022, 3, 3),
                 expires=datetime(2023, 3, 3),
                 permissions={
-                    "contents": PermissionValue.WRITE,
+                    RepositoryPermission.CONTENTS: PermissionValue.WRITE,
                 },
             )
         ],
@@ -466,14 +467,14 @@ async def fake_github(aiohttp_server, credentials, request):
                     f"""
                 <li>
                     <input type="radio"
-                        name="integration[default_permissions][{perm_id}]"
+                        name="integration[default_permissions][{key.value}]"
                         value="{poss_value.value}"
-                        {"checked" if perm_value == poss_value else ""}
+                        {"checked" if value == poss_value else ""}
                     >
                 </li>
             """
                 )
-                for perm_id, perm_value in token.permissions.items()
+                for key, value in token.permissions.items()
                 for poss_value in PermissionValue
             ]
         )

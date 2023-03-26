@@ -4,9 +4,10 @@ Data structures common to both sync and async client.
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
-from enum import Enum
 from pathlib import Path
 from typing import Sequence
+
+from .permissions import AnyPermissionKey, PermissionValue
 
 user_data_dir = str(Path("~/.autogithubtok/persist-chromium").expanduser())
 max_login_attempts = 3
@@ -73,12 +74,6 @@ class SelectRepositories(FineGrainedTokenScope):
     "Repository names"
 
 
-class PermissionValue(Enum):
-    NONE = ""
-    READ = "read"
-    WRITE = "write"
-
-
 @dataclass
 class FineGrainedTokenMinimalInfo:
     """
@@ -118,7 +113,7 @@ class FineGrainedTokenIndividualInfo(FineGrainedTokenMinimalInfo):
 
     created: datetime
     expires: datetime
-    permissions: Mapping[str, PermissionValue]
+    permissions: Mapping[AnyPermissionKey, PermissionValue]
 
 
 @dataclass

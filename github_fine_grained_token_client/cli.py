@@ -5,14 +5,10 @@ from sys import stderr
 
 import typer
 
-from github_fine_grained_token_client.async_client import PermissionValue
-from github_fine_grained_token_client.common import (
-    AllRepositories,
-    PublicRepositories,
-    SelectRepositories,
-)
-
 from .app import App
+from .async_client import PermissionValue
+from .common import AllRepositories, PublicRepositories, SelectRepositories
+from .permissions import permission_from_str
 
 cli_app = typer.Typer(
     context_settings={
@@ -102,7 +98,7 @@ def create(
         None,
         "--write-permissions",
         "-W",
-        help="operations for which to grant read and write permissions, "
+        help="operations for which to grant read *and* write permissions, "
         "comma-separated (use the possible-fine-grained-permissions command "
         "to get a list of possible values)",
     ),
@@ -128,13 +124,13 @@ def create(
     )
     permissions = {
         **{
-            permission_name: PermissionValue.READ
+            permission_from_str(permission_name): PermissionValue.READ
             for permission_name in (
                 read_permissions.split(",") if read_permissions else []
             )
         },
         **{
-            permission_name: PermissionValue.WRITE
+            permission_from_str(permission_name): PermissionValue.WRITE
             for permission_name in (
                 write_permissions.split(",") if write_permissions else []
             )
@@ -150,15 +146,18 @@ def possible_permissions(
     fetch: bool = typer.Option(
         False, help="fetch possible permissions from GitHub website"
     ),
+    codegen: bool = typer.Option(
+        False, help="output as enum code (for dev use); requires --fetch"
+    ),
 ):
     """
     List fine-grained permissions that can be set when creating a token.
     """
+    if codegen and not fetch:
+        print("--codegen requires --fetch", file=stderr)
+        raise typer.Exit(1)
     app = _app_from_typer_state(ctx.obj)
-    if fetch:
-        app.list_fetched_possible_permissions()
-    else:
-        app.list_possible_permissions()
+    app.list_fetched_possible_permissions(fetch, codegen)
 
 
 @cli_app.command("list")
