@@ -2,6 +2,7 @@ import logging
 from dataclasses import dataclass
 from pathlib import Path
 from sys import stderr
+from textwrap import dedent
 
 import typer
 
@@ -9,7 +10,11 @@ from . import __distribution_name__, __version__
 from .app import App
 from .async_client import PermissionValue
 from .common import AllRepositories, PublicRepositories, SelectRepositories
-from .permissions import permission_from_str
+from .permissions import (
+    AccountPermission,
+    RepositoryPermission,
+    permission_from_str,
+)
 
 cli_app = typer.Typer(
     context_settings={
@@ -55,13 +60,13 @@ def typer_callback(
         None,
         "--persist",
         metavar="PATH",
-        help="persist browser state to directory (no persistence if not set)",
+        help="Persist browser state to directory (no persistence if not set).",
     ),
     username: str = typer.Option(
         None,
         "--username",
         "-u",
-        help="GitHub username (will prompt for it if not given)",
+        help="GitHub username (will prompt for it if not given).",
     ),
     password: str = typer.Option(
         None,
@@ -69,24 +74,24 @@ def typer_callback(
         "(will prompt for it or load it from the keyring if not given); "
         "you should probably NOT set this via the CLI because it "
         "will then be visible in the list of processes; "
-        "it's safer to provide it as an env var",
+        "it's safer to provide it as an env var.",
     ),
     github_base_url: str = typer.Option(
-        "https://github.com", help="base URL of the GitHub website to use"
+        "https://github.com", help="Base URL of the GitHub website to use."
     ),
     verbose: int = typer.Option(
         0,
         "--verbose",
         "-v",
         count=True,
-        help="verbose output (repeat to increases verbosity, e.g. -vv, -vvv)",
+        help="Verbose output (repeat to increases verbosity, e.g. -vv, -vvv).",
     ),
     version: bool = typer.Option(
         False,
         "--version",
         "-V",
         callback=version_callback,
-        help="print version and exit",
+        help="Print version information and exit.",
         is_eager=True,
     ),
 ):
@@ -104,43 +109,73 @@ def typer_callback(
     )
 
 
-@cli_app.command()
+# XXX hack until either https://github.com/python/mypy/issues/9484 is solved
+# (can't ignore types in f-strings) or enum_properties fixes their types or
+# I stop using enum_properties
+account_permissions_for_help = ", ".join(
+    f"{p.value} ({p.full_name})" for p in AccountPermission  # type: ignore
+)
+repository_permissions_for_help = ", ".join(
+    f"{p.value} ({p.full_name})" for p in RepositoryPermission  # type: ignore
+)
+
+
+@cli_app.command(
+    help=dedent(
+        f"""
+        Create a new fine-grained token on GitHub.
+
+        Possible permissions for the --read-permissions and --write-permissions
+        options are:
+
+        Account permissions:
+
+        {account_permissions_for_help}
+
+        Repository permissions:
+
+        {repository_permissions_for_help}
+
+        More detailed descriptions can be fetched from GitHub using the
+        possible-permissions command with the --fetch option.
+        """
+    ).strip()
+)
 def create(
     ctx: typer.Context,
-    token_name: str = typer.Argument(..., help="name of the token"),
+    token_name: str = typer.Argument(..., help="Name of the token."),
     repositories: str = typer.Option(
         None,
         "--repositories",
         "-r",
-        help="repositories for which the token should apply (comma-separated)",
+        help="Repositories for which the token should be valid "
+        "(comma-separated).",
     ),
     all_repositories: bool = typer.Option(
         False,
         "--all-repositories",
         "-a",
-        help="let token apply to all repositories "
-        "(mutually exclusive with --repositories)",
+        help="Let token apply to all repositories "
+        "(mutually exclusive with --repositories).",
     ),
     read_permissions: str = typer.Option(
         None,
         "--read-permissions",
         "-R",
-        help="operations for which to grant read permissions, "
-        "comma-separated (use the possible-fine-grained-permissions command "
-        "to get a list of possible values)",
+        help="Operations for which to grant read permissions, "
+        "comma-separated (see help text above for possible values).",
     ),
     write_permissions: str = typer.Option(
         None,
         "--write-permissions",
         "-W",
-        help="operations for which to grant read *and* write permissions, "
-        "comma-separated (use the possible-fine-grained-permissions command "
-        "to get a list of possible values)",
+        help="Operations for which to grant read *and* write permissions, "
+        "comma-separated (see help text above for possible values).",
     ),
     description: str = typer.Option("", help="token description"),
 ):
     """
-    Create a new fine-grained token on GitHub
+    Create a new fine-grained token on GitHub.
     """
     if repositories and all_repositories:
         print(
@@ -179,10 +214,10 @@ def create(
 def possible_permissions(
     ctx: typer.Context,
     fetch: bool = typer.Option(
-        False, help="fetch possible permissions from GitHub website"
+        False, help="Fetch possible permissions from GitHub website."
     ),
     codegen: bool = typer.Option(
-        False, help="output as enum code (for dev use); requires --fetch"
+        False, help="Output as enum code (for dev use); requires --fetch."
     ),
 ):
     """
@@ -198,7 +233,7 @@ def possible_permissions(
 @cli_app.command("list")
 def list_tokens(ctx: typer.Context):
     """
-    List fine-grained tokens on GitHub
+    List fine-grained tokens on GitHub.
     """
     app = _app_from_typer_state(ctx.obj)
     app.list_tokens()
@@ -209,24 +244,24 @@ def info(
     ctx: typer.Context,
     name_or_id: str = typer.Argument(
         ...,
-        help="name or ID of token, "
+        help="Name or ID of token, "
         "decided based on whether it's a number or not; "
-        "see --name and --id for forcing one or the other",
+        "see --name and --id for forcing one or the other.",
     ),
     name: bool = typer.Option(
-        False, help="force interpreting NAME_OR_ID as a name"
+        False, help="Force interpreting NAME_OR_ID as a name."
     ),
     id: bool = typer.Option(
-        False, help="force interpreting NAME_OR_ID as an ID"
+        False, help="Force interpreting NAME_OR_ID as an ID."
     ),
     complete: bool = typer.Option(
         False,
-        help="fetch information not on the token's own page "
-        "(specifically, the last-used date)",
+        help="Fetch information not on the token's own page "
+        "(specifically, the last-used date).",
     ),
 ):
     """
-    Print information about a fine-grained token
+    Print information about a fine-grained token.
     """
     app = _app_from_typer_state(ctx.obj)
     if name and id:
@@ -244,14 +279,14 @@ def info(
 @cli_app.command()
 def delete(
     ctx: typer.Context,
-    name: str = typer.Argument(..., help="name of token to delete"),
+    name: str = typer.Argument(..., help="Name of token to delete."),
     exit_code: bool = typer.Option(
         False,
-        help="return a non-zero exit code if the token doesn't exist",
+        help="Return a non-zero exit code if the token doesn't exist.",
     ),
 ):
     """
-    Delete fine-grained token on GitHub
+    Delete fine-grained token on GitHub.
     """
     app = _app_from_typer_state(ctx.obj)
     did_delete = app.delete_token(name)
