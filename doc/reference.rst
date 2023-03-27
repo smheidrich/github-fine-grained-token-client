@@ -20,6 +20,28 @@ Credentials
    :members:
    :undoc-members:
 
+Two-factor authentication (2FA)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+One-time password (OTP) providers
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+.. autoclass:: github_fine_grained_token_client.TwoFactorOtpProvider
+   :members:
+   :undoc-members:
+
+.. autoclass:: github_fine_grained_token_client.NullTwoFactorOtpProvider
+   :members:
+   :undoc-members:
+
+.. autoclass:: github_fine_grained_token_client.BlockingPromptTwoFactorOtpProvider
+   :members:
+   :undoc-members:
+
+.. autoclass:: github_fine_grained_token_client.ThreadedPromptTwoFactorOtpProvider
+   :members:
+   :undoc-members:
+
 Token scopes
 ~~~~~~~~~~~~
 
@@ -39,34 +61,96 @@ Token scopes
    :members:
    :undoc-members:
 
+Permissions
+~~~~~~~~~~~
+
+A single permission consists of two parts: A "permission key" (term I made up,
+nowhere to be found in GitHub's docs) describing the resource(s) to which it
+applies and a "permission value" describing the level of access granted (none,
+read-only, read/write).
+
+Permission keys
+^^^^^^^^^^^^^^^
+
+Permission keys are grouped into account permissions and repository
+permissions. If you want a type to reference either, you can use the
+:any:`AnyPermissionKey` type alias.
+
+Enum members of the constituent types always have attributes ``value``
+(corresponding to the identifier used for communicating with GitHub's servers,
+which is also used to represent them in this package's CLI tool) and
+``full_name`` corresponding to a human-readable name.
+
+.. autoclass:: github_fine_grained_token_client.AnyPermissionKey
+
+.. autoenum:: github_fine_grained_token_client.AccountPermission
+
+.. autoenum:: github_fine_grained_token_client.RepositoryPermission
+
+Permission values
+^^^^^^^^^^^^^^^^^
+
+.. autoenum:: github_fine_grained_token_client.PermissionValue
+
 Token information bundles
 ~~~~~~~~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: github_fine_grained_token_client.FineGrainedTokenBulkInfo
+.. autoclass:: github_fine_grained_token_client.FineGrainedTokenMinimalInfo
+   :members:
+   :undoc-members:
 
+.. autoclass:: github_fine_grained_token_client.FineGrainedTokenBulkInfo
    :members:
    :undoc-members:
 
 .. autoclass:: github_fine_grained_token_client.FineGrainedTokenStandardInfo
-
    :members:
    :undoc-members:
+
+.. autoclass:: github_fine_grained_token_client.FineGrainedTokenIndividualInfo
+   :members:
+   :undoc-members:
+
+.. autoclass:: github_fine_grained_token_client.FineGrainedTokenCompletePersistentInfo
+   :members:
+   :undoc-members:
+
 
 Exceptions
 ~~~~~~~~~~
 
-.. autoclass:: github_fine_grained_token_client.LoginError
+.. autoexception:: github_fine_grained_token_client.LoginError
    :members:
    :undoc-members:
 
-.. autoclass:: github_fine_grained_token_client.UsernameError
+.. autoexception:: github_fine_grained_token_client.UsernameError
    :members:
    :undoc-members:
 
-.. autoclass:: github_fine_grained_token_client.PasswordError
+.. autoexception:: github_fine_grained_token_client.PasswordError
    :members:
    :undoc-members:
 
-.. autoclass:: github_fine_grained_token_client.TooManyAttemptsError
+.. autoexception:: github_fine_grained_token_client.TooManyAttemptsError
+   :members:
+   :undoc-members:
+
+.. autoexception:: github_fine_grained_token_client.TwoFactorAuthenticationError
+   :members:
+   :undoc-members:
+
+.. autoexception:: github_fine_grained_token_client.TokenCreationError
+   :members:
+   :undoc-members:
+
+.. autoexception:: github_fine_grained_token_client.TokenNameError
+   :members:
+   :undoc-members:
+
+.. autoexception:: github_fine_grained_token_client.TokenNameAlreadyTakenError
+   :members:
+   :undoc-members:
+
+.. autoexception:: github_fine_grained_token_client.RepositoryNotFoundError
    :members:
    :undoc-members:
