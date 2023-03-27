@@ -5,6 +5,7 @@ from sys import stderr
 
 import typer
 
+from . import __distribution_name__, __version__
 from .app import App
 from .async_client import PermissionValue
 from .common import AllRepositories, PublicRepositories, SelectRepositories
@@ -39,6 +40,14 @@ def _app_from_typer_state(state: TyperState) -> App:
     )
 
 
+# Typer's idiom for implementing --version... don't even ask.
+# https://typer.tiangolo.com/tutorial/options/version/
+def version_callback(value: bool):
+    if value:
+        print(f"{__distribution_name__} {__version__}")
+        raise typer.Exit()
+
+
 @cli_app.callback()
 def typer_callback(
     ctx: typer.Context,
@@ -71,6 +80,14 @@ def typer_callback(
         "-v",
         count=True,
         help="verbose output (repeat to increases verbosity, e.g. -vv, -vvv)",
+    ),
+    version: bool = typer.Option(
+        False,
+        "--version",
+        "-V",
+        callback=version_callback,
+        help="print version and exit",
+        is_eager=True,
     ),
 ):
     ctx.obj = TyperState(
