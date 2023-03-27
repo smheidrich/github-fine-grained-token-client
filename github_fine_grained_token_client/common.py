@@ -37,6 +37,10 @@ class TooManyAttemptsError(LoginError):
     pass
 
 
+class TwoFactorAuthenticationError(Exception):
+    pass
+
+
 class TokenCreationError(Exception):
     pass
 

@@ -14,6 +14,11 @@ import aiohttp
 import dateparser
 from bs4 import BeautifulSoup, Tag
 
+from github_fine_grained_token_client.two_factor_authentication import (
+    NullTwoFactorOtpProvider,
+    TwoFactorOtpProvider,
+)
+
 from .abstract_http_session import AbstractHttpSession
 from .common import (
     AllRepositories,
@@ -28,6 +33,7 @@ from .common import (
     SelectRepositories,
     TokenCreationError,
     TokenNameAlreadyTakenError,
+    TwoFactorAuthenticationError,
     UnexpectedContentError,
     UnexpectedPageError,
 )
@@ -58,6 +64,7 @@ class _FineGrainedTokenMinimalInternalInfo(FineGrainedTokenBulkInfo):
 @asynccontextmanager
 async def async_github_fine_grained_token_client(
     credentials: GithubCredentials,
+    two_factor_otp_provider: TwoFactorOtpProvider = NullTwoFactorOtpProvider(),
     persist_to: Path | None = None,
     base_url: str = "https://github.com",
     logger: Logger = default_logger,
@@ -69,6 +76,8 @@ async def async_github_fine_grained_token_client(
 
     Args:
         credentials: Credentials to log into GitHub with.
+        two_factor_otp_provider: Provider of one-time passwords for
+            two-factor authentication.
         persist_to: Directory in which to persist the session state (currently
             just cookies). Will also be used to load previously persisted
             sessions. ``None`` means no persistence.
@@ -81,7 +90,12 @@ async def async_github_fine_grained_token_client(
     async with aiohttp.ClientSession(raise_for_status=True) as http_session:
         yield (
             AsyncGithubFineGrainedTokenClientSession.make_with_cookies_loaded(
-                http_session, credentials, persist_to, base_url, logger
+                http_session,
+                credentials,
+                two_factor_otp_provider,
+                persist_to,
+                base_url,
+                logger,
             )
         )
 
@@ -107,6 +121,9 @@ class AsyncGithubFineGrainedTokenClientSession:
         self,
         http_session: aiohttp.ClientSession,
         credentials: GithubCredentials,
+        two_factor_otp_provider: TwoFactorOtpProvider = (
+            NullTwoFactorOtpProvider()
+        ),
         persist_to: Path | None = None,
         base_url: str = "https://github.com",
         logger: Logger = default_logger,
@@ -123,6 +140,7 @@ class AsyncGithubFineGrainedTokenClientSession:
             )
         self.http_session = http_session_
         self.credentials = credentials
+        self.two_factor_otp_provider = two_factor_otp_provider
         self.base_url = base_url
         self.logger = logger
 
@@ -173,6 +191,17 @@ class AsyncGithubFineGrainedTokenClientSession:
             raise UnexpectedContentError("no authenticity token found on page")
         return authenticity_token
 
+    def _get_hidden_form_inputs(
+        self, html: BeautifulSoup | Tag
+    ) -> Mapping[str, str]:
+        return {
+            expect_single_str(input_elem["name"]): expect_single_str(
+                input_elem["value"]
+            )
+            for input_elem in html.select('form input[type="hidden"]')
+            if "value" in input_elem.attrs
+        }
+
     def _make_url(self, path: str) -> str:
         return self.base_url.rstrip("/") + path
 
@@ -202,11 +231,7 @@ class AsyncGithubFineGrainedTokenClientSession:
             self.logger.info("login required")
             destination_url = response.url.query.get("return_to")
             html = await self._get_parsed_response_html(response)
-            hidden_inputs = {
-                input_elem["name"]: input_elem["value"]
-                for input_elem in html.select('form input[type="hidden"]')
-                if "value" in input_elem.attrs
-            }
+            hidden_inputs = self._get_hidden_form_inputs(html)
             response.release()  # free up connection for next request
             async with self.http_session.post(
                 self._make_url("/session"),
@@ -216,7 +241,7 @@ class AsyncGithubFineGrainedTokenClientSession:
                     **hidden_inputs,
                 },
             ) as response:
-                if str(response.url).startswith(self._make_url("/session")):
+                if str(response.url) == self._make_url("/session"):
                     html = await self._get_parsed_response_html(response)
                     login_error = one_or_none(
                         html.select("#js-flash-container")
@@ -229,6 +254,8 @@ class AsyncGithubFineGrainedTokenClientSession:
                 if (
                     destination_url is not None
                     and str(response.url) != destination_url
+                    and str(response.url)
+                    != self._make_url("/sessions/two-factor/app")
                 ):
                     raise UnexpectedPageError(
                         f"ended up on unexpected page {response.url} after "
@@ -260,14 +287,17 @@ class AsyncGithubFineGrainedTokenClientSession:
             yield response
         else:
             self.logger.info("password confirmation required")
-            # TODO put this in helper method with form tree as arg
-            hidden_inputs = {
-                input_elem["name"]: input_elem["value"]
-                for input_elem in html.select('form input[type="hidden"]')
-            }
-            form = one_or_none(html.select("form"))
-            if form is None:
+            hidden_inputs = self._get_hidden_form_inputs(html)
+            form_elems = html.select("form")
+            if not form_elems:
                 raise UnexpectedContentError("no form found on page")
+            elif len(form_elems) == 1:
+                # password confirmation dialog for users without 2FA enabled
+                form = exactly_one(form_elems)
+            else:
+                # password confirmation dialog for users with 2FA (OTP) enabled
+                # (has 3 forms, 1 for confirm via OTP, 2 for via password...)
+                form = exactly_one(html.select("noscript form"))
             response.release()  # free up connection for next request
             async with self.http_session.post(
                 (
@@ -301,6 +331,48 @@ class AsyncGithubFineGrainedTokenClientSession:
                 yield response
 
     @asynccontextmanager
+    async def _handle_two_factor_auth(
+        self, response: aiohttp.ClientResponse
+    ) -> AsyncIterator[aiohttp.ClientResponse]:
+        # TODO implement 2FA methods other than OTP
+        if not str(response.url).startswith(
+            self._make_url("/sessions/two-factor/app")
+        ):
+            self.logger.info("no two-factor authentication required")
+            yield response
+        else:
+            self.logger.info("two-factor authentication required")
+            html = await self._get_parsed_response_html(response)
+            hidden_inputs = self._get_hidden_form_inputs(html)
+            otp = await self.two_factor_otp_provider.get_otp_for_user(
+                self.credentials.username
+            )
+            response.release()  # free up connection for next request
+            async with self._post(
+                "/sessions/two-factor",
+                data={
+                    "app_otp": otp,
+                    **hidden_inputs,
+                },
+            ) as response:
+                if str(response.url).startswith(
+                    self._make_url("/sessions/two-factor")
+                ):
+                    html = await self._get_parsed_response_html(response)
+                    error_elem = one_or_none(
+                        html.select("#js-flash-container")
+                    )
+                    if error_elem is not None:
+                        raise TwoFactorAuthenticationError(
+                            error_elem.get_text().strip()
+                        )
+                    raise UnexpectedContentError(
+                        "ended up back on two-factor authentication page "
+                        "but not sure why"
+                    )
+                yield response
+
+    @asynccontextmanager
     async def _handle_auth(
         self, response: aiohttp.ClientResponse
     ) -> AsyncIterator[aiohttp.ClientResponse]:
@@ -320,7 +392,11 @@ class AsyncGithubFineGrainedTokenClientSession:
         async with self._handle_login(response) as (
             _,
             response,
-        ), self._confirm_password(response) as response:
+        ), self._handle_two_factor_auth(
+            response
+        ) as response, self._confirm_password(
+            response
+        ) as response:
             yield response
 
     def _get(self, path: str, **kwargs) -> aiohttp.ClientResponse:
@@ -493,7 +569,9 @@ class AsyncGithubFineGrainedTokenClientSession:
         """
         async with self._get("/login") as response, self._handle_login(
             response
-        ) as (did_login, response):
+        ) as (did_login, response), self._handle_two_factor_auth(
+            response
+        ) as response:
             pass
         return did_login
 
