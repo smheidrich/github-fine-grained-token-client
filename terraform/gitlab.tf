@@ -21,3 +21,21 @@ resource "gitlab_project_mirror" "github_mirror" {
   project = gitlab_project.project.id
   url     = "https://${data.github_user.current.login}:${var.github_mirror_token}@github.com/${data.github_user.current.login}/${var.project_name}.git"
 }
+
+resource "gitlab_project_milestone" "v1" {
+  project = gitlab_project.project.id
+  title   = "v1"
+  description = "First public release"
+}
+
+resource "gitlab_project_milestone" "v1_1" {
+  project = gitlab_project.project.id
+  title   = "v1.1"
+  description = "Release meant to polish things & introduce new features"
+}
+
+resource "gitlab_project_milestone" "v2" {
+  project = gitlab_project.project.id
+  title   = "v2"
+  description = "First release after 1.0 allowed to introduce breaking changes"
+}
