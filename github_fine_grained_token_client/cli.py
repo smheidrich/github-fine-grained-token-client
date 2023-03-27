@@ -23,9 +23,14 @@ class TyperState:
     username: str | None
     password: str | None
     github_base_url: str = "https://github.com"
+    verbosity: int = logging.WARNING
 
 
 def _app_from_typer_state(state: TyperState) -> App:
+    # it seems that there is no way around setting global state with Python's
+    # own logging module, so setting this up is done in the outermost layer
+    # here (=> everything inside has no global state mutations)
+    logging.basicConfig(level=state.verbosity)
     return App(
         state.persist_to,
         state.username,
@@ -60,12 +65,25 @@ def typer_callback(
     github_base_url: str = typer.Option(
         "https://github.com", help="base URL of the GitHub website to use"
     ),
+    verbose: int = typer.Option(
+        0,
+        "--verbose",
+        "-v",
+        count=True,
+        help="verbose output (repeat to increases verbosity, e.g. -vv, -vvv)",
+    ),
 ):
     ctx.obj = TyperState(
         Path(persist_to) if persist_to is not None else None,
         username,
         password,
         github_base_url,
+        verbosity={
+            0: logging.WARNING,
+            1: logging.INFO,
+            2: logging.DEBUG,
+            3: logging.NOTSET,
+        }.get(verbose, 3),
     )
 
 
@@ -225,10 +243,6 @@ def delete(
 
 
 def cli_main():
-    # it seems that there is no way around setting global state with Python's
-    # own logging module, so setting this up is done in the outermost layer
-    # here (=> everything inside has no global state mutations)
-    logging.basicConfig(level=logging.INFO, format="%(message)s")
     cli_app()
 
 
