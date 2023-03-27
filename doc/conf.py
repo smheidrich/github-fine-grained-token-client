@@ -38,6 +38,7 @@ extensions = [
     # "sphinx.ext.autosummary",
     # "autoapi.extension",
     # "sphinxcontrib.repl_selectability",
+    "enum_tools.autoenum",
 ]
 
 # Add any paths that contain templates here, relative to this directory.
@@ -77,6 +78,7 @@ html_static_path = ["_static"]
 # don't show argument type hints in function signature, which looks really bad
 # - show in description instead
 autodoc_typehints = "description"
+autodoc_default_options = {"show-inheritance": True}
 
 # -- Intersphinx configuration -----------------------------------------------
 

@@ -5,9 +5,16 @@ from enum_properties import EnumProperties, p  # type: ignore
 
 
 class PermissionValue(Enum):
+    """
+    The extent to which a permission applies.
+    """
+
     NONE = ""
+    "Not at all"
     READ = "read"
+    "Read-only"
     WRITE = "write"
+    "Read and write"
 
 
 class RepositoryPermission(

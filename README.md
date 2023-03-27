@@ -29,6 +29,12 @@ pip3 install github-fine-grained-token-client
 
 ## Command-line tool usage
 
+To use the CLI tool, you'll need to install some optional dependencies first:
+
+```bash
+pip3 install 'github-fine-grained-token-client[cli]'
+```
+
 To create a token `yourtokenname` with read-only permissions (the default) for
 your public GitHub repository `yourrepo`:
 
