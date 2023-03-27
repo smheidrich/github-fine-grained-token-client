@@ -1,4 +1,3 @@
-import asyncio
 from collections.abc import AsyncIterator, Mapping, Sequence
 from contextlib import asynccontextmanager
 from dataclasses import fields
@@ -27,6 +26,7 @@ from .permissions import (
     RepositoryPermission,
 )
 from .two_factor_authentication import BlockingPromptTwoFactorOtpProvider
+from .utils.asyncio import top_level_sync
 
 max_login_attempts = 3
 
@@ -102,95 +102,94 @@ class App:
         # TODO
         yield
 
-    def create_token(
+    # note that none of these public methods below are actually async when
+    # called: the top_level_sync decorator makes them effectively sync & only
+    # callable from outside async functions (which is fine for us as this app
+    # is not meant to be used by anything other the CLI)
+
+    @top_level_sync
+    async def create_token(
         self,
         token_name: str,
         scope: FineGrainedTokenScope,
         description: str = "",
         permissions: Mapping[AnyPermissionKey, PermissionValue] | None = None,
     ) -> None:
-        async def _run():
-            async with self._logged_in_error_handling_session() as session:
-                token = await session.create_token(
-                    token_name,
-                    timedelta(days=364),
-                    description,
-                    None,
-                    scope,
-                    permissions,
-                )
-            print("Created token:")
-            print(token)
+        async with self._logged_in_error_handling_session() as session:
+            token = await session.create_token(
+                token_name,
+                timedelta(days=364),
+                description,
+                None,
+                scope,
+                permissions,
+            )
+        print("Created token:")
+        print(token)
 
-        asyncio.run(_run())
-
-    def list_fetched_possible_permissions(
+    @top_level_sync
+    async def list_fetched_possible_permissions(
         self, fetch=False, codegen=False
     ) -> None:
-        async def _run():
-            if fetch:
-                async with self._logged_in_error_handling_session() as session:
-                    possible_permissions = (
-                        await session.get_possible_permissions()
+        if fetch:
+            async with self._logged_in_error_handling_session() as session:
+                possible_permissions = await session.get_possible_permissions()
+        else:
+            possible_permissions = PosiblePermissions(
+                account=[
+                    PossiblePermission(
+                        p.value, p.full_name, "", p.allowed_values
                     )
+                    for p in AccountPermission  # type: ignore[attr-defined]
+                ],
+                repository=[
+                    PossiblePermission(
+                        p.value, p.full_name, "", p.allowed_values
+                    )
+                    for p in RepositoryPermission  # type: ignore[attr-defined]
+                ],
+            )
+        for group in ["repository", "account"]:
+            if codegen:
+                print(f"class {group.capitalize()}Permission(...):")
+                for possible_permission in getattr(
+                    possible_permissions, group
+                ):
+                    print(
+                        f"    {possible_permission.identifier.upper()} = "
+                        f'"{possible_permission.identifier}", '
+                        f'"{possible_permission.name}", ('
+                        + ", ".join(
+                            f"PermissionValue.{allowed_value.name}"
+                            for allowed_value in (
+                                possible_permission.allowed_values
+                            )
+                        )
+                        + ")"
+                    )
+                print()
             else:
-                possible_permissions = PosiblePermissions(
-                    account=[
-                        PossiblePermission(
-                            p.value, p.full_name, "", p.allowed_values
+                print(chalk.bold(f"{group.capitalize()}:"))
+                for possible_permission in getattr(
+                    possible_permissions, group
+                ):
+                    print(
+                        f"  {chalk.bold(possible_permission.name)} "
+                        f"({possible_permission.identifier})"
+                        + (
+                            f"\n    {possible_permission.description}"
+                            if fetch
+                            else ""
                         )
-                        for p in AccountPermission
-                    ],
-                    repository=[
-                        PossiblePermission(
-                            p.value, p.full_name, "", p.allowed_values
-                        )
-                        for p in RepositoryPermission
-                    ],
-                )
-            for group in ["repository", "account"]:
-                if codegen:
-                    print(f"class {group.capitalize()}Permission(...):")
-                    for possible_permission in getattr(
-                        possible_permissions, group
-                    ):
-                        print(
-                            f"    {possible_permission.identifier.upper()} = "
-                            f'"{possible_permission.identifier}", '
-                            f'"{possible_permission.name}", ('
-                            + ", ".join(
-                                f"PermissionValue.{allowed_value.name}"
-                                for allowed_value in (
-                                    possible_permission.allowed_values
-                                )
+                        + "\n    Possible values: "
+                        + ", ".join(
+                            allowed_value.value
+                            for allowed_value in (
+                                possible_permission.allowed_values
                             )
-                            + ")"
+                            if allowed_value != PermissionValue.NONE
                         )
-                    print()
-                else:
-                    print(chalk.bold(f"{group.capitalize()}:"))
-                    for possible_permission in getattr(
-                        possible_permissions, group
-                    ):
-                        print(
-                            f"  {chalk.bold(possible_permission.name)} "
-                            f"({possible_permission.identifier})"
-                            + (
-                                f"\n    {possible_permission.description}"
-                                if fetch
-                                else ""
-                            )
-                            + "\n    Possible values: "
-                            + ", ".join(
-                                allowed_value.value
-                                for allowed_value in (
-                                    possible_permission.allowed_values
-                                )
-                                if allowed_value != PermissionValue.NONE
-                            )
-                        )
-
-        asyncio.run(_run())
+                    )
 
     @classmethod
     def _pretty_print_tokens(cls, tokens: Sequence[Any]) -> None:
@@ -213,71 +212,59 @@ class App:
                     continue
                 print(f"  {f.name}: {getattr(token, f.name)}")
 
-    def list_tokens(self) -> None:
-        async def _run():
-            async with self._logged_in_error_handling_session() as session:
-                tokens = await session.get_tokens()
-            self._pretty_print_tokens(tokens)
+    @top_level_sync
+    async def list_tokens(self) -> None:
+        async with self._logged_in_error_handling_session() as session:
+            tokens = await session.get_tokens()
+        self._pretty_print_tokens(tokens)
 
-        asyncio.run(_run())
-
-    def show_token_info_by_id(
+    @top_level_sync
+    async def show_token_info_by_id(
         self, token_id: int, complete: bool = False
     ) -> bool:
-        async def _run():
-            async with self._logged_in_error_handling_session() as session:
-                if complete:
-                    full_token_info = (
-                        await session.get_complete_persistent_token_info(
-                            token_id
-                        )
-                    )
-                else:
-                    full_token_info = await session.get_token_info(token_id)
-            self._pretty_print_tokens([full_token_info])
-            return True
+        async with self._logged_in_error_handling_session() as session:
+            if complete:
+                full_token_info = (
+                    await session.get_complete_persistent_token_info(token_id)
+                )
+            else:
+                full_token_info = await session.get_token_info(token_id)
+        self._pretty_print_tokens([full_token_info])
+        return True
 
-        return asyncio.run(_run())
-
-    def show_token_info_by_name(
+    @top_level_sync
+    async def show_token_info_by_name(
         self, name: str, complete: bool = False
     ) -> bool:
         # TODO refactor: extract commonalities with ^
-        async def _run():
-            async with self._logged_in_error_handling_session() as session:
-                tokens = await session.get_tokens()
-                tokens_by_name = {token.name: token for token in tokens}
-                try:
-                    token = tokens_by_name[name]
-                except KeyError:
-                    print(f"No token named {name!r} found.")
-                    return False
-                if complete:
-                    full_token_info = (
-                        await session.get_complete_persistent_token_info(
-                            token.id
-                        )
-                    )
-                else:
-                    full_token_info = await session.get_token_info(token.id)
-            self._pretty_print_tokens([full_token_info])
-            return True
+        async with self._logged_in_error_handling_session() as session:
+            tokens = await session.get_tokens()
+            tokens_by_name = {token.name: token for token in tokens}
+            try:
+                token = tokens_by_name[name]
+            except KeyError:
+                print(f"No token named {name!r} found.")
+                return False
+            if complete:
+                full_token_info = (
+                    await session.get_complete_persistent_token_info(token.id)
+                )
+            else:
+                full_token_info = await session.get_token_info(token.id)
+        self._pretty_print_tokens([full_token_info])
+        return True
 
-        return asyncio.run(_run())
-
-    def delete_token(self, name: str) -> bool:
+    @top_level_sync
+    async def delete_token(self, name: str) -> bool:
         """
         Returns:
             Whether a token of that name was actually deleted or whether
             nothing had to be done because it was missing.
         """
 
-        async def _run():
+        try:
             async with self._logged_in_error_handling_session() as session:
                 await session.delete_token(name)
-
-        try:
-            asyncio.run(_run())
             print(f"Deleted token {name!r}")
             return True
         except KeyError:
