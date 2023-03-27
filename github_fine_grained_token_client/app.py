@@ -26,6 +26,7 @@ from .permissions import (
     AnyPermissionKey,
     RepositoryPermission,
 )
+from .two_factor_authentication import BlockingPromptTwoFactorOtpProvider
 
 max_login_attempts = 3
 
@@ -42,6 +43,7 @@ class App:
         self.username = username
         self.password = password
         self.github_base_url = github_base_url
+        self.two_factor_otp_provider = BlockingPromptTwoFactorOtpProvider()
 
     @asynccontextmanager
     async def _logged_in_error_handling_session(
@@ -58,7 +60,10 @@ class App:
             self.github_base_url, self.username, self.password
         )
         async with async_github_fine_grained_token_client(
-            credentials, self.persist_to, self.github_base_url
+            credentials=credentials,
+            two_factor_otp_provider=self.two_factor_otp_provider,
+            persist_to=self.persist_to,
+            base_url=self.github_base_url,
         ) as session, self._handle_errors(session):
             for attempt in count():
                 try:

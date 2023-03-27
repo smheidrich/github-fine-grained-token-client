@@ -26,6 +26,9 @@ from github_fine_grained_token_client.common import (
 )
 from github_fine_grained_token_client.credentials import GithubCredentials
 from github_fine_grained_token_client.permissions import RepositoryPermission
+from github_fine_grained_token_client.two_factor_authentication import (
+    TwoFactorOtpProvider,
+)
 from tests.utils_for_tests import assert_lhs_fields_match
 
 logger = getLogger(__name__)
@@ -34,9 +37,16 @@ logger = getLogger(__name__)
 @dataclass
 class GithubState:
     credentials: GithubCredentials
-    fine_grained_tokens: list[FineGrainedTokenStandardInfo]  # TODO more info
+    fine_grained_tokens: list[FineGrainedTokenCompletePersistentInfo]
     authenticity_tokens: dict[str, str] = field(default_factory=dict)
-    "Mapping from URLs to authenticity tokens to post to them"
+    "Mapping from URLs to authenticity tokens to post to them."
+    two_factor_otp: str = "123456"
+    two_factor_auth_redirect: str | None = None
+    """
+    URL to redirect to after 2FA.
+
+    Absolutely *no idea* how GitHub itself determines this... State? Magic?
+    """
 
     def redeem_authenticity_token(self, token: str, url: str) -> bool:
         """
@@ -69,6 +79,25 @@ class GithubState:
         logger.debug(f"created new authenticity token {token!r}")
         return token
 
+    def redeem_two_factor_otp(self, otp: str) -> bool:
+        """
+        Validates and redeems a 2FA OTP.
+        """
+        logger.debug(f"attempting to redeem OTP {otp!r}")
+        if otp != self.two_factor_otp:
+            logger.debug(
+                "incorrect OTP "
+                f"(given: {otp!r}, correct: {self.two_factor_otp!r})"
+            )
+            return False
+        logger.debug(f"redeemed OTP {otp!r}")
+        self.new_two_factor_otp()
+        return True
+
+    def new_two_factor_otp(self) -> None:
+        self.two_factor_otp = str(uuid4())[:6]
+        logger.debug(f"created new 2FA OTP {self.two_factor_otp!r}")
+
 
 @dataclass
 class FakeGitHub:
@@ -91,13 +120,32 @@ def make_url(server, path) -> str:
     return "/".join([make_base_url(server), path.lstrip("/")])
 
 
+class CorrectOtpProvider(TwoFactorOtpProvider):
+    """
+    Dummy OTP provider that always provides the correct OTP from fake GH state.
+    """
+
+    def __init__(self, state: GithubState):
+        self.state = state
+
+    async def get_otp_for_user(self, username: str) -> str:
+        return self.state.two_factor_otp
+
+
 @pytest.fixture
-async def fake_github(aiohttp_server, credentials, request):
+def correct_otp_provider(fake_github) -> CorrectOtpProvider:
+    return CorrectOtpProvider(fake_github.state)
+
+
+@pytest.fixture
+async def fake_github(aiohttp_server, credentials, request) -> FakeGitHub:
     # don't get confused: the above request param is a special pytest fixture,
     # while the ones in the functions below are standard aiohttp params
-    password_confirmation_required_for = getattr(request, "param", {}).get(
+    params = getattr(request, "param", {})
+    password_confirmation_required_for = params.get(
         "password_confirmation", set()
     )
+    two_factor_auth_required = params.get("two_factor_auth_required", False)
     state = GithubState(
         credentials,
         [
@@ -108,13 +156,15 @@ async def fake_github(aiohttp_server, credentials, request):
                 created=datetime(2022, 3, 3),
                 expires=datetime(2023, 3, 3),
                 permissions={
-                    RepositoryPermission.CONTENTS: PermissionValue.WRITE,
+                    RepositoryPermission.CONTENTS: (  # type: ignore[dict-item]
+                        PermissionValue.WRITE
+                    )
                 },
             )
         ],
     )
     routes = aiohttp.web.RouteTableDef()
-    server: aiohttp.test_utils.BaseServer | None = None
+    server: aiohttp.test_utils.BaseTestServer | None = None  # type: ignore
 
     def login_redirect_if_not_logged_in(request):
         if request.cookies.get("logged-in") == "true":
@@ -337,8 +387,12 @@ async def fake_github(aiohttp_server, credentials, request):
             )
         data = await request.post()
         destination = data.get("return_to")
+        if two_factor_auth_required:
+            state.two_factor_auth_redirect = destination
+            destination = "/sessions/two-factor/app"
         response = aiohttp.web.HTTPFound(str(destination or "/"))
-        response.set_cookie("logged-in", "true")
+        if not two_factor_auth_required:
+            response.set_cookie("logged-in", "true")
         return response
 
     @routes.post("/sessions/sudo")
@@ -357,6 +411,45 @@ async def fake_github(aiohttp_server, credentials, request):
             )
         response = aiohttp.web.HTTPFound(data["sudo_return_to"])
         response.set_cookie("password-confirmed", "true")
+        return response
+
+    @routes.get("/sessions/two-factor/app")
+    async def two_factor_page(request):
+        action_path = "/sessions/two-factor"
+        action_url = make_url(server, action_path)
+        authenticity_token = state.new_authenticity_token(action_url)
+        return aiohttp.web.Response(
+            text=dedent(
+                f"""
+                <form action="{action_path}" accept-charset="UTF-8"
+                    method="post"
+                >
+                <input type="hidden" name="authenticity_token"
+                    value="{authenticity_token}"
+                />
+                <input type="text" name="app_otp"/>
+                </form>
+                """
+            )
+        )
+
+    @routes.post("/sessions/two-factor")
+    @auto_redeem_authenticity_token
+    async def two_factor_verify(request):
+        data = await request.post()
+        if not state.redeem_two_factor_otp(data["app_otp"]):
+            return aiohttp.web.Response(
+                text=dedent(
+                    """
+                    <div id="js-flash-container">
+                        Incorrect 2FA OTP.
+                    </div>
+                    """
+                )
+            )
+        assert state.two_factor_auth_redirect is not None
+        response = aiohttp.web.HTTPFound(state.two_factor_auth_redirect)
+        response.set_cookie("logged-in", "true")
         return response
 
     @routes.get("/")
@@ -558,9 +651,13 @@ def credentials():
     return GithubCredentials(username="testuser", password="testpassword")
 
 
-async def test_login(fake_github, credentials):
+@pytest.mark.parametrize(
+    "fake_github", [{}, {"two_factor_auth_required": True}], indirect=True
+)
+async def test_login(fake_github, credentials, correct_otp_provider):
     async with async_github_fine_grained_token_client(
         credentials,
+        two_factor_otp_provider=correct_otp_provider,
         base_url=fake_github.base_url,
     ) as client:
         await client.login()
@@ -599,14 +696,27 @@ async def test_login_wrong_password(fake_github, credentials):
             await client.login()
 
 
+# this test doubles as testing that all manner of extra auth steps (2FA,
+# password confirmation, ...) work
 @pytest.mark.parametrize(
     "fake_github",
-    [{}, {"password_confirmation": {"/settings/tokens"}}],
+    [
+        {},
+        {"password_confirmation": {"/settings/tokens"}},
+        {"two_factor_auth_required": True},
+        {
+            "password_confirmation": {"/settings/tokens"},
+            "two_factor_auth_required": True,
+        },
+    ],
     indirect=True,
 )
-async def test_get_fine_grained_tokens_minimal(fake_github, credentials):
+async def test_get_fine_grained_tokens_minimal(
+    fake_github, credentials, correct_otp_provider
+):
     async with async_github_fine_grained_token_client(
         credentials,
+        two_factor_otp_provider=correct_otp_provider,
         base_url=fake_github.base_url,
     ) as client:
         tokens = await client.get_tokens_minimal()
