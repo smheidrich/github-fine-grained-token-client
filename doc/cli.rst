@@ -36,6 +36,9 @@ The tool will prompt you for your GitHub username and password so it can log
 in, ask whether it should save your credentials to the system keyring (see
 below) and, if everything works, create and print a new token named
 ``yourtokenname`` with the stated settings.
+It will also prompt for a two-factor authentication (2FA) one-time password
+(OTP) if you have 2FA configured (which will be mandatory on GitHub starting at
+some point in 2023).
 
 Keyring (optional)
 ------------------

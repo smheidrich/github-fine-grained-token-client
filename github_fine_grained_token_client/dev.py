@@ -17,6 +17,6 @@ class PossiblePermission:
 
 
 @dataclass
-class PosiblePermissions:
+class PossiblePermissions:
     repository: Sequence[PossiblePermission]
     account: Sequence[PossiblePermission]

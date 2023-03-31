@@ -63,9 +63,9 @@ class ThreadedPromptTwoFactorOtpProvider(TwoFactorOtpProvider):
 
     **NOTE** also that this will hang indefinitely if the main thread exits,
     preventing the program from exiting. See
-    [here](https://stackoverflow.com/a/49992422) for why. I hope future Python
-    versions will provide a way to have true daemon threads awaited on via
-    ``asyncio``.
+    `here <https://stackoverflow.com/a/49992422>`_ for why. I hope future
+    Python versions will provide a way to have true daemon threads awaited on
+    via ``asyncio``.
     """
 
     @staticmethod

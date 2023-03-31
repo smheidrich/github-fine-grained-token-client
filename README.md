@@ -54,9 +54,12 @@ from datetime import timedelta
 from os import environ
 
 from github_fine_grained_token_client import (
-    async_github_fine_grained_token_client,
-    SelectRepositories,
     GithubCredentials,
+    SelectRepositories,
+    async_github_fine_grained_token_client,
+)
+from github_fine_grained_token_client.two_factor_authentication import (
+    BlockingPromptTwoFactorOtpProvider,
 )
 
 credentials = GithubCredentials(environ["GITHUB_USER"], environ["GITHUB_PASS"])
@@ -64,7 +67,10 @@ assert credentials.username and credentials.password
 
 
 async def main() -> str:
-    async with async_github_fine_grained_token_client(credentials) as session:
+    async with async_github_fine_grained_token_client(
+        credentials=credentials,
+        two_factor_otp_provider=BlockingPromptTwoFactorOtpProvider(),
+    ) as session:
         token = await session.create_token(
             "my token",
             expires=timedelta(days=364),

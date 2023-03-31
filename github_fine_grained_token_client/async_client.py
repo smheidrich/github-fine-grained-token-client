@@ -15,7 +15,6 @@ import dateparser
 from bs4 import BeautifulSoup, Tag
 
 from github_fine_grained_token_client.two_factor_authentication import (
-    NullTwoFactorOtpProvider,
     TwoFactorOtpProvider,
 )
 
@@ -38,7 +37,7 @@ from .common import (
     UnexpectedPageError,
 )
 from .credentials import GithubCredentials
-from .dev import PosiblePermissions, PossiblePermission
+from .dev import PossiblePermission, PossiblePermissions
 from .permissions import (
     ALL_PERMISSION_KEYS,
     AnyPermissionKey,
@@ -64,7 +63,7 @@ class _FineGrainedTokenMinimalInternalInfo(FineGrainedTokenBulkInfo):
 @asynccontextmanager
 async def async_github_fine_grained_token_client(
     credentials: GithubCredentials,
-    two_factor_otp_provider: TwoFactorOtpProvider = NullTwoFactorOtpProvider(),
+    two_factor_otp_provider: TwoFactorOtpProvider,
     persist_to: Path | None = None,
     base_url: str = "https://github.com",
     logger: Logger = default_logger,
@@ -108,7 +107,7 @@ class AsyncGithubFineGrainedTokenClientSession:
     Async token client session.
 
     Should not be instantiated directly but only through
-    :func:`async_github_token_client`.
+    :any:`async_github_fine_grained_token_client`.
 
     A session's lifecycle corresponds to that of the HTTP client which is used
     to perform operations on the GitHub web interface. When multiple operations
@@ -121,9 +120,7 @@ class AsyncGithubFineGrainedTokenClientSession:
         self,
         http_session: aiohttp.ClientSession,
         credentials: GithubCredentials,
-        two_factor_otp_provider: TwoFactorOtpProvider = (
-            NullTwoFactorOtpProvider()
-        ),
+        two_factor_otp_provider: TwoFactorOtpProvider,
         persist_to: Path | None = None,
         base_url: str = "https://github.com",
         logger: Logger = default_logger,
@@ -564,8 +561,8 @@ class AsyncGithubFineGrainedTokenClientSession:
         actions) isn't already logged in.
 
         Returns:
-            `True` if a login was actually performed, `False` if nothing was
-            done.
+            ``True`` if a login was actually performed, ``False`` if nothing
+            was done.
         """
         async with self._get("/login") as response, self._handle_login(
             response
@@ -584,7 +581,8 @@ class AsyncGithubFineGrainedTokenClientSession:
         Note that the returned information does not include the expiration
         date, which would require additional HTTP requests to fetch. To
         retrieve tokens and their expiration dates, you can use
-        ``get_tokens`` instead.
+        :py:meth:`~AsyncGithubFineGrainedTokenClientSession.get_tokens`
+        instead.
 
         Returns:
             List of tokens.
@@ -667,7 +665,7 @@ class AsyncGithubFineGrainedTokenClientSession:
         This has to make one additional HTTP request for each token to get its
         expiration date (this is also how it works on GitHub's fine-grained
         tokens page), so it will be a bit slower than
-        ``get_tokens_minimal``.
+        :py:meth:`~AsyncGithubFineGrainedTokenClientSession.get_tokens_minimal`.
 
         Returns:
             List of tokens.
@@ -823,14 +821,15 @@ class AsyncGithubFineGrainedTokenClientSession:
             raise UnexpectedContentError(f"deletion failed: {alert_text!r}")
         self.logger.info(f"deleted token {name!r}")
 
-    async def get_possible_permissions(self) -> PosiblePermissions:
+    async def get_possible_permissions(self) -> PossiblePermissions:
         """
         Retrieve list of possible permissions one can use for tokens.
 
-        This is only useful for the development of this library and there is no
-        point in you using it. Users of this library can access all possible
-        permissions by iterating over the ``PermissionType`` enum instead,
-        which has the advantage of being a fully local operation.
+        This is only useful for the development of this library and there isn't
+        much of a point in you using it. Users of this library can access all
+        possible permissions by iterating over the :any:`RepositoryPermission`
+        and :any:`AccountPermission` enums instead, which has the advantage of
+        being a fully local operation.
         """
         async with self._auth_handling_get(
             "/settings/personal-access-tokens/new"
@@ -864,7 +863,7 @@ class AsyncGithubFineGrainedTokenClientSession:
                 possible_permissions_dict[permission_group].append(
                     possible_permission
                 )
-        return PosiblePermissions(
+        return PossiblePermissions(
             repository=possible_permissions_dict["repository"],
             account=possible_permissions_dict["user"],
         )
