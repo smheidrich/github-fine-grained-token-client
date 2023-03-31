@@ -55,14 +55,28 @@ exclude_patterns = ["_build", "Thumbs.db", ".DS_Store"]
 # The theme to use for HTML and HTML Help pages.  See the documentation for
 # a list of builtin themes.
 #
-html_theme = "alabaster"
+html_theme = "insipid"
 
 # Options for theme
 html_theme_options = {
-    "page_width": "960px",
+    # Insipid:
+    "initial_sidebar_visibility_threshold": "60rem",
+    "breadcrumbs": True,
+    # Alabaster:
+    # "page_width": "960px",
+    # not sure:
     # 'logo': 'logo.png',
     # 'logo_name': True,
     # 'logo_text_align': 'center',
+}
+
+html_context = {
+    "display_gitlab": True,
+    "gitlab_user": "smheidrich",
+    "gitlab_repo": project,
+    "display_github": True,
+    "github_user": "smheidrich",
+    "github_repo": project,
 }
 
 # html_favicon = '_static/favicon.png'
@@ -70,7 +84,7 @@ html_theme_options = {
 # Add any paths that contain custom static files (such as style sheets) here,
 # relative to this directory. They are copied after the builtin static files,
 # so a file named "default.css" will overwrite the builtin "default.css".
-html_static_path = ["_static"]
+# html_static_path = ["_static"]
 
 
 # -- Autodoc configuration ---------------------------------------------------
