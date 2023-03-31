@@ -10,6 +10,7 @@ from .common import (
     FineGrainedTokenCompletePersistentInfo,
     FineGrainedTokenIndividualInfo,
     FineGrainedTokenMinimalInfo,
+    FineGrainedTokenScope,
     FineGrainedTokenStandardInfo,
     LoginError,
     PasswordError,

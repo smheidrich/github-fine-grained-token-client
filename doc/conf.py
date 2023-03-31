@@ -82,7 +82,10 @@ autodoc_default_options = {"show-inheritance": True}
 
 # -- Intersphinx configuration -----------------------------------------------
 
-intersphinx_mapping = {"python": ("https://docs.python.org/3", None)}
+intersphinx_mapping = {
+    "python": ("https://docs.python.org/3", None),
+    "aiohttp": ("https://docs.aiohttp.org/en/stable", None),
+}
 
 # -- Cross-referencing defaults ----------------------------------------------
 

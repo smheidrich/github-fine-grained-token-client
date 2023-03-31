@@ -11,6 +11,7 @@ API Reference
 
 .. autoclass:: github_fine_grained_token_client.AsyncGithubFineGrainedTokenClientSession
    :members:
+   :inherited-members:
    :undoc-members:
 
 Credentials
@@ -18,6 +19,7 @@ Credentials
 
 .. autoclass:: github_fine_grained_token_client.GithubCredentials
    :members:
+   :inherited-members:
    :undoc-members:
 
 Two-factor authentication (2FA)
@@ -28,18 +30,22 @@ One-time password (OTP) providers
 
 .. autoclass:: github_fine_grained_token_client.TwoFactorOtpProvider
    :members:
+   :inherited-members:
    :undoc-members:
 
 .. autoclass:: github_fine_grained_token_client.NullTwoFactorOtpProvider
    :members:
+   :inherited-members:
    :undoc-members:
 
 .. autoclass:: github_fine_grained_token_client.BlockingPromptTwoFactorOtpProvider
    :members:
+   :inherited-members:
    :undoc-members:
 
 .. autoclass:: github_fine_grained_token_client.ThreadedPromptTwoFactorOtpProvider
    :members:
+   :inherited-members:
    :undoc-members:
 
 Token scopes
@@ -47,18 +53,22 @@ Token scopes
 
 .. autoclass:: github_fine_grained_token_client.FineGrainedTokenScope
    :members:
+   :inherited-members:
    :undoc-members:
 
 .. autoclass:: github_fine_grained_token_client.AllRepositories
    :members:
+   :inherited-members:
    :undoc-members:
 
 .. autoclass:: github_fine_grained_token_client.PublicRepositories
    :members:
+   :inherited-members:
    :undoc-members:
 
 .. autoclass:: github_fine_grained_token_client.SelectRepositories
    :members:
+   :inherited-members:
    :undoc-members:
 
 Permissions
@@ -95,24 +105,34 @@ Permission values
 Token information bundles
 ~~~~~~~~~~~~~~~~~~~~~~~~~
 
+These are "bundles" of different sets of information about a token that are
+returned by different methods. There are so many of them because different
+calls will yield different amounts of information and in my opinion the types
+should fit "tightly" over that to make maximal use of static type checking.
+
 .. autoclass:: github_fine_grained_token_client.FineGrainedTokenMinimalInfo
    :members:
+   :inherited-members:
    :undoc-members:
 
 .. autoclass:: github_fine_grained_token_client.FineGrainedTokenBulkInfo
    :members:
+   :inherited-members:
    :undoc-members:
 
 .. autoclass:: github_fine_grained_token_client.FineGrainedTokenStandardInfo
    :members:
+   :inherited-members:
    :undoc-members:
 
 .. autoclass:: github_fine_grained_token_client.FineGrainedTokenIndividualInfo
    :members:
+   :inherited-members:
    :undoc-members:
 
 .. autoclass:: github_fine_grained_token_client.FineGrainedTokenCompletePersistentInfo
    :members:
+   :inherited-members:
    :undoc-members:
 
 

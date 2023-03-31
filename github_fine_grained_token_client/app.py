@@ -19,7 +19,7 @@ from .credentials import (
     prompt_for_credentials,
     save_credentials_to_keyring,
 )
-from .dev import PosiblePermissions, PossiblePermission
+from .dev import PossiblePermission, PossiblePermissions
 from .permissions import (
     AccountPermission,
     AnyPermissionKey,
@@ -135,7 +135,7 @@ class App:
             async with self._logged_in_error_handling_session() as session:
                 possible_permissions = await session.get_possible_permissions()
         else:
-            possible_permissions = PosiblePermissions(
+            possible_permissions = PossiblePermissions(
                 account=[
                     PossiblePermission(
                         p.value, p.full_name, "", p.allowed_values
