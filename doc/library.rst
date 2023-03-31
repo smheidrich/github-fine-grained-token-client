@@ -5,7 +5,7 @@ Basic example
 -------------
 
 Here is a basic example script showing how to use the library's async client
-(via :any:`async_github_fine_grained_token_client`) to create a new token on
+(:any:`async_github_fine_grained_token_client`) to create a new token on
 GitHub:
 
 .. code:: python

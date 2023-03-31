@@ -58,7 +58,7 @@ build docs:
           || $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
           || $CI_COMMIT_TAG =~ /^v\d+.\d+.\d+-?.*$/
   script:
-    - pip install sphinx sphinx-rtd-theme
+    - poetry install --with=doc
     - ( cd doc && make html )
     - mv doc/_build/html built-docs
   artifacts:

@@ -4,8 +4,8 @@ API Reference
 ``github_fine_grained_token_client`` package
 --------------------------------------------
 
-``async`` client
-~~~~~~~~~~~~~~~~
+async client
+~~~~~~~~~~~~
 
 .. autofunction:: github_fine_grained_token_client.async_github_fine_grained_token_client
 

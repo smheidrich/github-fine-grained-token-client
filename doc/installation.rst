@@ -10,6 +10,12 @@ To install from PyPI:
 
   pip3 install github-fine-grained-token-client
 
+To also install the :ref:`CLI tool <Command-line usage>`, not just the library:
+
+.. code:: bash
+
+   pip3 install 'github-fine-grained-token-client[cli]'
+
 Source code
 -----------
 
