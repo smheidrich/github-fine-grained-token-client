@@ -1,9 +1,19 @@
 from enum import Enum
-from typing import TypeAlias, cast
+from typing import TypeAlias, TypeVar, cast
 
 from enum_properties import EnumProperties, p  # type: ignore
 
+try:
+    from enum_tools import document_enum
+except ImportError:  # enum_tools is only available when doc deps installed
 
+    T = TypeVar("T")
+
+    def document_enum(x: T) -> T:  # type: ignore[misc]
+        return x
+
+
+@document_enum
 class PermissionValue(Enum):
     """
     The extent to which a permission applies.
