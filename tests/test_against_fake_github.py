@@ -787,13 +787,23 @@ async def test_get_complete_persistent_fine_grained_token_info(
     ],
     indirect=True,
 )
-async def test_delete_fine_grained_tokens(fake_github, credentials):
+async def test_delete_fine_grained_token_by_name(fake_github, credentials):
     async with async_github_fine_grained_token_client(
         credentials,
         two_factor_otp_provider=NullTwoFactorOtpProvider(),
         base_url=fake_github.base_url,
     ) as client:
-        await client.delete_token("existing token")
+        await client.delete_token_by_name("existing token")
+    assert fake_github.state.fine_grained_tokens == []
+
+
+async def test_delete_fine_grained_token_by_id(fake_github, credentials):
+    async with async_github_fine_grained_token_client(
+        credentials,
+        two_factor_otp_provider=NullTwoFactorOtpProvider(),
+        base_url=fake_github.base_url,
+    ) as client:
+        await client.delete_token_by_id(123)
     assert fake_github.state.fine_grained_tokens == []
 
 

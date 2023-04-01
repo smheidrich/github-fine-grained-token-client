@@ -255,7 +255,7 @@ class App:
         return True
 
     @top_level_sync
-    async def delete_token(self, name: str) -> bool:
+    async def delete_token_by_name(self, name: str) -> bool:
         """
         Returns:
             Whether a token of that name was actually deleted or whether
@@ -264,9 +264,26 @@ class App:
 
         try:
             async with self._logged_in_error_handling_session() as session:
-                await session.delete_token(name)
-            print(f"Deleted token {name!r}")
+                await session.delete_token_by_name(name)
+            print(f"Deleted token named {name!r}")
             return True
         except KeyError:
             print(f"No token named {name!r} found. Nothing to do.")
+            return False
+
+    @top_level_sync
+    async def delete_token_by_id(self, id: int) -> bool:
+        """
+        Returns:
+            Whether a token of that name was actually deleted or whether
+            nothing had to be done because it was missing.
+        """
+
+        try:
+            async with self._logged_in_error_handling_session() as session:
+                await session.delete_token_by_id(id)
+            print(f"Deleted token with ID {id!r}")
+            return True
+        except KeyError:
+            print(f"No token with ID {id!r} found. Nothing to do.")
             return False
