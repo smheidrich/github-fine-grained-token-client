@@ -1,11 +1,8 @@
 API Reference
 =============
 
-``github_fine_grained_token_client`` package
---------------------------------------------
-
-async client
-~~~~~~~~~~~~
+Async client
+------------
 
 .. autofunction:: github_fine_grained_token_client.async_github_fine_grained_token_client
 
@@ -15,7 +12,7 @@ async client
    :undoc-members:
 
 Credentials
-~~~~~~~~~~~
+-----------
 
 .. autoclass:: github_fine_grained_token_client.GithubCredentials
    :members:
@@ -23,10 +20,10 @@ Credentials
    :undoc-members:
 
 Two-factor authentication (2FA)
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-------------------------------
 
 One-time password (OTP) providers
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 .. autoclass:: github_fine_grained_token_client.TwoFactorOtpProvider
    :members:
@@ -49,7 +46,7 @@ One-time password (OTP) providers
    :undoc-members:
 
 Token scopes
-~~~~~~~~~~~~
+------------
 
 .. autoclass:: github_fine_grained_token_client.FineGrainedTokenScope
    :members:
@@ -72,7 +69,7 @@ Token scopes
    :undoc-members:
 
 Permissions
-~~~~~~~~~~~
+-----------
 
 A single permission consists of two parts: A "permission key" (term I made up,
 nowhere to be found in GitHub's docs) describing the resource(s) to which it
@@ -80,7 +77,7 @@ applies and a "permission value" describing the level of access granted (none,
 read-only, read/write).
 
 Permission keys
-^^^^^^^^^^^^^^^
+~~~~~~~~~~~~~~~
 
 Permission keys are grouped into account permissions and repository
 permissions. If you want a type to reference either, you can use the
@@ -98,12 +95,12 @@ which is also used to represent them in this package's CLI tool) and
 .. autoenum:: github_fine_grained_token_client.RepositoryPermission
 
 Permission values
-^^^^^^^^^^^^^^^^^
+~~~~~~~~~~~~~~~~~
 
 .. autoenum:: github_fine_grained_token_client.PermissionValue
 
 Token information bundles
-~~~~~~~~~~~~~~~~~~~~~~~~~
+-------------------------
 
 These are "bundles" of different sets of information about a token that are
 returned by different methods. There are so many of them because different
@@ -137,7 +134,7 @@ should fit "tightly" over that to make maximal use of static type checking.
 
 
 Exceptions
-~~~~~~~~~~
+----------
 
 .. autoexception:: github_fine_grained_token_client.LoginError
    :members:
