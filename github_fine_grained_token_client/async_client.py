@@ -3,7 +3,7 @@
 """
 import asyncio
 from collections.abc import Mapping
-from contextlib import asynccontextmanager
+from contextlib import AbstractContextManager, asynccontextmanager
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from logging import Logger, getLogger
@@ -87,22 +87,21 @@ async def async_github_fine_grained_token_client(
       A context manager for the async session.
     """
     async with aiohttp.ClientSession(raise_for_status=True) as http_session:
-        yield (
-            AsyncGithubFineGrainedTokenClientSession.make_with_cookies_loaded(
-                http_session,
-                credentials,
-                two_factor_otp_provider,
-                persist_to,
-                base_url,
-                logger,
-            )
-        )
+        with AsyncGithubFineGrainedTokenClientSession.make_with_cookies_loaded(
+            http_session,
+            credentials,
+            two_factor_otp_provider,
+            persist_to,
+            base_url,
+            logger,
+        ) as session:
+            yield session
 
 
 T = TypeVar("T", bound="AsyncGithubFineGrainedTokenClientSession")
 
 
-class AsyncGithubFineGrainedTokenClientSession:
+class AsyncGithubFineGrainedTokenClientSession(AbstractContextManager):
     """
     Async token client session.
 
@@ -165,6 +164,10 @@ class AsyncGithubFineGrainedTokenClientSession:
         """
         if self._persisting_http_session is not None:
             self._persisting_http_session.load(suppress_errors)
+
+    def __exit__(self, *args, **kwargs) -> None:
+        if self._persisting_http_session is not None:
+            self._persisting_http_session.__exit__(*args, **kwargs)
 
     async def _get_parsed_response_html(
         self, response: aiohttp.ClientResponse
@@ -396,10 +399,14 @@ class AsyncGithubFineGrainedTokenClientSession:
         ) as response:
             yield response
 
-    def _get(self, path: str, **kwargs) -> aiohttp.ClientResponse:
+    def _get(
+        self, path: str, **kwargs
+    ) -> aiohttp.client._RequestContextManager:
         return self.http_session.get(self._make_url(path), **kwargs)
 
-    def _post(self, path: str, **kwargs) -> aiohttp.ClientResponse:
+    def _post(
+        self, path: str, **kwargs
+    ) -> aiohttp.client._RequestContextManager:
         return self.http_session.post(self._make_url(path), **kwargs)
 
     @asynccontextmanager
