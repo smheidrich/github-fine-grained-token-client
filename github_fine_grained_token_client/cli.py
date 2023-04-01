@@ -279,7 +279,18 @@ def info(
 @cli_app.command()
 def delete(
     ctx: typer.Context,
-    name: str = typer.Argument(..., help="Name of token to delete."),
+    name_or_id: str = typer.Argument(
+        ...,
+        help="Name or ID of token, "
+        "decided based on whether it's a number or not; "
+        "see --name and --id for forcing one or the other.",
+    ),
+    name: bool = typer.Option(
+        False, help="Force interpreting NAME_OR_ID as a name."
+    ),
+    id: bool = typer.Option(
+        False, help="Force interpreting NAME_OR_ID as an ID."
+    ),
     exit_code: bool = typer.Option(
         False,
         help="Return a non-zero exit code if the token doesn't exist.",
@@ -289,7 +300,16 @@ def delete(
     Delete fine-grained token on GitHub.
     """
     app = _app_from_typer_state(ctx.obj)
-    did_delete = app.delete_token(name)
+    if name and id:
+        print(
+            "--name and --id are mutually exclusive",
+            file=stderr,
+        )
+        raise typer.Exit(1)
+    if id or (name_or_id.isdigit() and not name):
+        did_delete = app.delete_token_by_id(int(name_or_id))
+    else:
+        did_delete = app.delete_token_by_name(name_or_id)
     if exit_code and not did_delete:
         raise typer.Exit(2)
 

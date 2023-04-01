@@ -788,9 +788,29 @@ class AsyncGithubFineGrainedTokenClientSession(AbstractContextManager):
             )
         return permissions_dict
 
-    async def delete_token(self, name: str) -> None:
+    async def delete_token_by_id(self, id: int) -> None:
         """
-        Delete fine-grained token from GitHub.
+        Delete fine-grained token identified by its ID from GitHub.
+
+        Contrary to what you might think, this isn't any faster than
+        :any:`~AsyncGithubFineGrainedTokenClientSession.delete_token_by_name`
+        as both need to make one extra request to fetch an authenticity token.
+
+        Args:
+            id: ID of the token to delete.
+        """
+        # get list first because each has its own deletion authenticity token
+        info_by_id = {
+            info.id: info for info in await self._get_tokens_minimal_internal()
+        }
+        if id not in info_by_id:
+            raise KeyError(f"no token with ID {id!r}")
+        # delete
+        await self._delete_token_by_internal_info(info_by_id[id])
+
+    async def delete_token_by_name(self, name: str) -> None:
+        """
+        Delete fine-grained token identified by its name from GitHub.
 
         Args:
             name: Name of the token to delete.
@@ -801,17 +821,19 @@ class AsyncGithubFineGrainedTokenClientSession(AbstractContextManager):
             for info in await self._get_tokens_minimal_internal()
         }
         if name not in info_by_name:
-            raise KeyError(f"no such token: {name!r}")
+            raise KeyError(f"no token named {name!r}")
         # delete
-        id_ = info_by_name[name].id
-        self.logger.info(f"deleting token {name!r}")
+        await self._delete_token_by_internal_info(info_by_name[name])
+
+    async def _delete_token_by_internal_info(
+        self, info: _FineGrainedTokenMinimalInternalInfo
+    ) -> None:
+        self.logger.info(f"deleting token {info.name!r}")
         async with self._auth_handling_post(
-            f"/settings/personal-access-tokens/{id_}",
+            f"/settings/personal-access-tokens/{info.id}",
             data={
                 "_method": "delete",
-                "authenticity_token": (
-                    info_by_name[name].deletion_authenticity_token
-                ),
+                "authenticity_token": (info.deletion_authenticity_token),
             },
             headers={
                 "Referer": (
@@ -826,7 +848,7 @@ class AsyncGithubFineGrainedTokenClientSession(AbstractContextManager):
         alert_text = alert.get_text().strip()
         if not alert_text == "Deleted personal access token":
             raise UnexpectedContentError(f"deletion failed: {alert_text!r}")
-        self.logger.info(f"deleted token {name!r}")
+        self.logger.info(f"deleted token {info.name!r}")
 
     async def get_possible_permissions(self) -> PossiblePermissions:
         """
