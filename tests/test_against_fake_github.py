@@ -750,13 +750,26 @@ async def test_get_fine_grained_tokens(fake_github, credentials):
             )
 
 
-async def test_get_fine_grained_token_info(fake_github, credentials):
+async def test_get_fine_grained_token_info_by_id(fake_github, credentials):
     async with async_github_fine_grained_token_client(
         credentials,
         two_factor_otp_provider=NullTwoFactorOtpProvider(),
         base_url=fake_github.base_url,
     ) as client:
-        token_info = await client.get_token_info(123)
+        token_info = await client.get_token_info_by_id(123)
+        assert isinstance(token_info, FineGrainedTokenIndividualInfo)
+        assert_lhs_fields_match(
+            token_info, fake_github.state.fine_grained_tokens[0]
+        )
+
+
+async def test_get_fine_grained_token_info_by_name(fake_github, credentials):
+    async with async_github_fine_grained_token_client(
+        credentials,
+        two_factor_otp_provider=NullTwoFactorOtpProvider(),
+        base_url=fake_github.base_url,
+    ) as client:
+        token_info = await client.get_token_info_by_name("existing token")
         assert isinstance(token_info, FineGrainedTokenIndividualInfo)
         assert_lhs_fields_match(
             token_info, fake_github.state.fine_grained_tokens[0]
@@ -771,7 +784,9 @@ async def test_get_complete_persistent_fine_grained_token_info(
         two_factor_otp_provider=NullTwoFactorOtpProvider(),
         base_url=fake_github.base_url,
     ) as client:
-        token_info = await client.get_complete_persistent_token_info(123)
+        token_info = await client.get_complete_persistent_token_info_by_name(
+            "existing token"
+        )
         assert isinstance(token_info, FineGrainedTokenIndividualInfo)
         assert_lhs_fields_match(
             token_info, fake_github.state.fine_grained_tokens[0]

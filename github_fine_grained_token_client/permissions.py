@@ -125,9 +125,9 @@ class RepositoryPermission(
         "Pull requests",
         (PermissionValue.NONE, PermissionValue.READ, PermissionValue.WRITE),
     )
-    REPOSITORY_ANNOUNCEMENT_BANNERS = (
-        "repository_announcement_banners",
-        "Repository announcement banners",
+    REPOSITORY_ADVISORIES = (
+        "repository_advisories",
+        "Repository security advisories",
         (PermissionValue.NONE, PermissionValue.READ, PermissionValue.WRITE),
     )
     SECRET_SCANNING_ALERTS = (

@@ -693,11 +693,11 @@ class AsyncGithubFineGrainedTokenClientSession(AbstractContextManager):
             for summary, expiration_date in zip(summaries, expiration_dates)
         ]
 
-    async def get_token_info(
+    async def get_token_info_by_id(
         self, token_id: int
     ) -> FineGrainedTokenIndividualInfo:
         """
-        Get complete information on a token as shown on the token's own page.
+        Get information on a token (by ID) as shown on the token's own page.
 
         Args:
             token_id: ID of the token. Can be obtained by calling
@@ -738,11 +738,36 @@ class AsyncGithubFineGrainedTokenClientSession(AbstractContextManager):
             permissions=permissions,
         )
 
-    async def get_complete_persistent_token_info(
+    async def get_token_info_by_name(
+        self, name: str
+    ) -> FineGrainedTokenIndividualInfo:
+        """
+        Get information on a token (by name) as shown on the token's own page.
+
+        Like
+        :any:`AsyncGithubFineGrainedTokenClientSession.get_token_info_by_id`
+        but by name instead of by ID. Needs to make one more request than that
+        one.
+
+        Args:
+            name: Name of the token.
+
+        Returns:
+            Token information.
+        """
+        info_by_name = {
+            info.name: info for info in await self.get_tokens_minimal()
+        }
+        if name not in info_by_name:
+            raise KeyError(f"no token named {name!r}")
+        info = info_by_name[name]
+        return await self.get_token_info_by_id(info.id)
+
+    async def get_complete_persistent_token_info_by_id(
         self, token_id: int
     ) -> FineGrainedTokenIndividualInfo:
         """
-        Get all persistent information on a token.
+        Get all persistent information on a token (by ID).
 
         This queries not only the token's own page but also the list of tokens
         where the last-used information resides.
@@ -758,7 +783,7 @@ class AsyncGithubFineGrainedTokenClientSession(AbstractContextManager):
         bulk_token_info = exactly_one(
             [t for t in bulk_tokens_info if t.id == token_id]
         )
-        individual_token_info = await self.get_token_info(token_id)
+        individual_token_info = await self.get_token_info_by_id(token_id)
         return FineGrainedTokenCompletePersistentInfo(
             id=token_id,
             name=individual_token_info.name,
@@ -766,6 +791,40 @@ class AsyncGithubFineGrainedTokenClientSession(AbstractContextManager):
             created=individual_token_info.created,
             permissions=individual_token_info.permissions,
             last_used_str=bulk_token_info.last_used_str,
+        )
+
+    async def get_complete_persistent_token_info_by_name(
+        self, name: str
+    ) -> FineGrainedTokenIndividualInfo:
+        """
+        Get all persistent information on a token (by name).
+
+        Like
+        :any:`~AsyncGithubFineGrainedTokenClientSession.get_complete_persistent_token_info_by_id`
+        but by name instead of by ID. Uses the same amount of requests though.
+
+        Args:
+            name: Name of the token.
+
+        Returns:
+            Token information.
+        """
+        bulk_info_by_name = {
+            bulk_info.name: bulk_info
+            for bulk_info in await self.get_tokens_minimal()
+        }
+        if name not in bulk_info_by_name:
+            raise KeyError(f"no token named {name!r}")
+        bulk_info = bulk_info_by_name[name]
+        token_id = bulk_info.id
+        individual_info = await self.get_token_info_by_id(token_id)
+        return FineGrainedTokenCompletePersistentInfo(
+            id=token_id,
+            name=individual_info.name,
+            expires=individual_info.expires,
+            created=individual_info.created,
+            permissions=individual_info.permissions,
+            last_used_str=bulk_info.last_used_str,
         )
 
     def _parse_token_permissions(

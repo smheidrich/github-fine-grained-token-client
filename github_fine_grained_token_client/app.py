@@ -225,10 +225,12 @@ class App:
         async with self._logged_in_error_handling_session() as session:
             if complete:
                 full_token_info = (
-                    await session.get_complete_persistent_token_info(token_id)
+                    await session.get_complete_persistent_token_info_by_id(
+                        token_id
+                    )
                 )
             else:
-                full_token_info = await session.get_token_info(token_id)
+                full_token_info = await session.get_token_info_by_id(token_id)
         self._pretty_print_tokens([full_token_info])
         return True
 
@@ -236,21 +238,15 @@ class App:
     async def show_token_info_by_name(
         self, name: str, complete: bool = False
     ) -> bool:
-        # TODO refactor: extract commonalities with ^
         async with self._logged_in_error_handling_session() as session:
-            tokens = await session.get_tokens()
-            tokens_by_name = {token.name: token for token in tokens}
-            try:
-                token = tokens_by_name[name]
-            except KeyError:
-                print(f"No token named {name!r} found.")
-                return False
             if complete:
                 full_token_info = (
-                    await session.get_complete_persistent_token_info(token.id)
+                    await session.get_complete_persistent_token_info_by_name(
+                        name
+                    )
                 )
             else:
-                full_token_info = await session.get_token_info(token.id)
+                full_token_info = await session.get_token_info_by_name(name)
         self._pretty_print_tokens([full_token_info])
         return True
 
