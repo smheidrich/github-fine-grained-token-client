@@ -7,6 +7,10 @@
 # (you can use example-env as a template), then run this script with those
 # variables defined, i.e.:
 #   ( . .env ; ./init.sh )
+#
+# if there are complaints about something auth-related after e.g. changing
+# the GitLab token TF uses, run this with -reconfigure appended to override
+# the local state
 terraform init \
   -backend-config=address=${TF_ADDRESS} \
   -backend-config=lock_address=${TF_ADDRESS}/lock \

@@ -10,6 +10,8 @@ resource "gitlab_project" "project" {
   squash_option = "default_on"
   only_allow_merge_if_all_discussions_are_resolved = true
   only_allow_merge_if_pipeline_succeeds = true
+  # this shouldn't be needed but it is...
+  pages_access_level = "enabled"
 }
 
 resource "gitlab_tag_protection" "protect_v_tags" {
