@@ -4,9 +4,9 @@ API Reference
 Async client
 ------------
 
-.. autofunction:: github_fine_grained_token_client.async_github_fine_grained_token_client
+.. autofunction:: github_fine_grained_token_client.async_client
 
-.. autoclass:: github_fine_grained_token_client.AsyncGithubFineGrainedTokenClientSession
+.. autoclass:: github_fine_grained_token_client.AsyncClientSession
    :members:
    :inherited-members:
    :undoc-members:

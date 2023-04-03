@@ -13,9 +13,7 @@ import pytest
 from aiohttp.web import Server
 from yarl import URL
 
-from github_fine_grained_token_client.async_client import (
-    async_github_fine_grained_token_client,
-)
+from github_fine_grained_token_client.asynchronous_client import async_client
 from github_fine_grained_token_client.common import (
     FineGrainedTokenBulkInfo,
     FineGrainedTokenCompletePersistentInfo,
@@ -656,7 +654,7 @@ def credentials():
     "fake_github", [{}, {"two_factor_auth_required": True}], indirect=True
 )
 async def test_login(fake_github, credentials, correct_otp_provider):
-    async with async_github_fine_grained_token_client(
+    async with async_client(
         credentials,
         two_factor_otp_provider=correct_otp_provider,
         base_url=fake_github.base_url,
@@ -665,14 +663,14 @@ async def test_login(fake_github, credentials, correct_otp_provider):
 
 
 async def test_login_with_persistence(fake_github, credentials, tmp_path):
-    async with async_github_fine_grained_token_client(
+    async with async_client(
         credentials,
         two_factor_otp_provider=NullTwoFactorOtpProvider(),
         base_url=fake_github.base_url,
         persist_to=tmp_path,
     ) as client:
         assert await client.login()  # had to login => returns True
-    async with async_github_fine_grained_token_client(
+    async with async_client(
         credentials,
         two_factor_otp_provider=NullTwoFactorOtpProvider(),
         base_url=fake_github.base_url,
@@ -682,7 +680,7 @@ async def test_login_with_persistence(fake_github, credentials, tmp_path):
 
 
 async def test_login_wrong_username(fake_github):
-    async with async_github_fine_grained_token_client(
+    async with async_client(
         GithubCredentials("wronguser", "wrongpw"),
         two_factor_otp_provider=NullTwoFactorOtpProvider(),
         base_url=fake_github.base_url,
@@ -692,7 +690,7 @@ async def test_login_wrong_username(fake_github):
 
 
 async def test_login_wrong_password(fake_github, credentials):
-    async with async_github_fine_grained_token_client(
+    async with async_client(
         GithubCredentials(credentials.username, "wrongpw"),
         two_factor_otp_provider=NullTwoFactorOtpProvider(),
         base_url=fake_github.base_url,
@@ -719,7 +717,7 @@ async def test_login_wrong_password(fake_github, credentials):
 async def test_get_fine_grained_tokens_minimal(
     fake_github, credentials, correct_otp_provider
 ):
-    async with async_github_fine_grained_token_client(
+    async with async_client(
         credentials,
         two_factor_otp_provider=correct_otp_provider,
         base_url=fake_github.base_url,
@@ -735,7 +733,7 @@ async def test_get_fine_grained_tokens_minimal(
 
 
 async def test_get_fine_grained_tokens(fake_github, credentials):
-    async with async_github_fine_grained_token_client(
+    async with async_client(
         credentials,
         two_factor_otp_provider=NullTwoFactorOtpProvider(),
         base_url=fake_github.base_url,
@@ -751,7 +749,7 @@ async def test_get_fine_grained_tokens(fake_github, credentials):
 
 
 async def test_get_fine_grained_token_info_by_id(fake_github, credentials):
-    async with async_github_fine_grained_token_client(
+    async with async_client(
         credentials,
         two_factor_otp_provider=NullTwoFactorOtpProvider(),
         base_url=fake_github.base_url,
@@ -764,7 +762,7 @@ async def test_get_fine_grained_token_info_by_id(fake_github, credentials):
 
 
 async def test_get_fine_grained_token_info_by_name(fake_github, credentials):
-    async with async_github_fine_grained_token_client(
+    async with async_client(
         credentials,
         two_factor_otp_provider=NullTwoFactorOtpProvider(),
         base_url=fake_github.base_url,
@@ -779,7 +777,7 @@ async def test_get_fine_grained_token_info_by_name(fake_github, credentials):
 async def test_get_complete_persistent_fine_grained_token_info(
     fake_github, credentials
 ):
-    async with async_github_fine_grained_token_client(
+    async with async_client(
         credentials,
         two_factor_otp_provider=NullTwoFactorOtpProvider(),
         base_url=fake_github.base_url,
@@ -803,7 +801,7 @@ async def test_get_complete_persistent_fine_grained_token_info(
     indirect=True,
 )
 async def test_delete_fine_grained_token_by_name(fake_github, credentials):
-    async with async_github_fine_grained_token_client(
+    async with async_client(
         credentials,
         two_factor_otp_provider=NullTwoFactorOtpProvider(),
         base_url=fake_github.base_url,
@@ -813,7 +811,7 @@ async def test_delete_fine_grained_token_by_name(fake_github, credentials):
 
 
 async def test_delete_fine_grained_token_by_id(fake_github, credentials):
-    async with async_github_fine_grained_token_client(
+    async with async_client(
         credentials,
         two_factor_otp_provider=NullTwoFactorOtpProvider(),
         base_url=fake_github.base_url,
@@ -829,7 +827,7 @@ async def test_delete_fine_grained_token_by_id(fake_github, credentials):
     indirect=True,
 )
 async def test_create_fine_grained_tokens(fake_github, credentials):
-    async with async_github_fine_grained_token_client(
+    async with async_client(
         credentials,
         two_factor_otp_provider=NullTwoFactorOtpProvider(),
         base_url=make_base_url(fake_github.server),
