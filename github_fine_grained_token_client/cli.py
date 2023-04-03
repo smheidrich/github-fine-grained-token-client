@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from sys import stderr
 from textwrap import dedent
+from typing import Optional
 
 import typer
 
@@ -172,6 +173,11 @@ def create(
         help="Operations for which to grant read *and* write permissions, "
         "comma-separated (see help text above for possible values).",
     ),
+    resource_owner: Optional[str] = typer.Option(
+        None,
+        help="the token's owner (user or organization); "
+        "defaults to the username from the login credentials",
+    ),
     description: str = typer.Option("", help="token description"),
 ):
     """
@@ -207,7 +213,9 @@ def create(
         },
     }
     app = _app_from_typer_state(ctx.obj)
-    app.create_token(token_name, scope, description, permissions)
+    app.create_token(
+        token_name, scope, description, resource_owner, permissions
+    )
 
 
 @cli_app.command()

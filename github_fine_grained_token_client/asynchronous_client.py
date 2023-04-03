@@ -475,7 +475,7 @@ class AsyncClientSession(AbstractContextManager):
         Returns:
             The created token.
         """
-        # normalize args
+        # normalize and validate args
         expires_date = (
             date.today() + expires
             if isinstance(expires, timedelta)
@@ -483,7 +483,15 @@ class AsyncClientSession(AbstractContextManager):
         )
         if permissions is None:
             permissions = {}
-        # /normalize args
+        if (
+            isinstance(scope, SelectRepositories)
+            and resource_owner != self.credentials.username
+        ):
+            raise ValueError(
+                "select repositories can only be specified for user-owned "
+                "tokens"
+            )
+        # /normalize and validate args
         async with self._auth_handling_get(
             "/settings/personal-access-tokens/new"
         ) as response:
@@ -522,7 +530,9 @@ class AsyncClientSession(AbstractContextManager):
                     expires_date.strftime("%Y-%m-%d")
                 ),
                 "user_programmatic_access[description]": description,
-                "target_name": self.credentials.username,  # TODO configurable
+                "target_name": self.credentials.username
+                if resource_owner is None
+                else resource_owner,
                 "install_target": install_target,
                 "repository_ids[]": repository_ids,
                 **{
@@ -543,9 +553,11 @@ class AsyncClientSession(AbstractContextManager):
         # get value of newly created token
         token_elem = one_or_none(html.select("#new-access-token"))
         if token_elem is None:
-            error_elem = one_or_none(html.select(".error"))
+            error_elem = one_or_none(
+                html.select(".error,.flash-error.flash-full")
+            )
             if error_elem:
-                error = error_elem.get_text()
+                error = error_elem.get_text().strip()
                 if "name has already been taken" in error.lower():
                     raise TokenNameAlreadyTakenError(error.lower())
                 raise TokenCreationError(f"error creating token: {error}")

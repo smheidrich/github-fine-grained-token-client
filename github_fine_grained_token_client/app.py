@@ -113,6 +113,7 @@ class App:
         token_name: str,
         scope: FineGrainedTokenScope,
         description: str = "",
+        resource_owner: str | None = None,
         permissions: Mapping[AnyPermissionKey, PermissionValue] | None = None,
     ) -> None:
         async with self._logged_in_error_handling_session() as session:
@@ -120,7 +121,7 @@ class App:
                 token_name,
                 timedelta(days=364),
                 description,
-                None,
+                resource_owner,
                 scope,
                 permissions,
             )
