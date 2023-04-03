@@ -1,0 +1,8 @@
+pre-commit:
+  commands:
+    isort-and-black:
+      run: isort {staged_files}; black {staged_files}
+      glob: "*.{py,pyi}"
+    flake8:
+      run: python3 -m flake8 {staged_files}
+      glob: "*.py"
