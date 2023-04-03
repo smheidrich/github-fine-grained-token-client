@@ -81,7 +81,7 @@ command-line argument with ``--username`` / ``-u``:
 
 .. code:: bash
 
-   github-fine-grained-token-client -u yourusername create --repositories yourproject yourtoken
+   github-fine-grained-token-client -u yourusername list
 
 Technically, this is also possible for the password, but doing so is **not**
 recommended, as it will expose the password via the process's metadata (visible
@@ -95,6 +95,26 @@ the schema ``GITHUBFINEGRAINEDTOKENCLIENT_<name of the cli option>``.
 So it's also possible to provide a username and password by setting
 ``GITHUBFINEGRAINEDTOKENCLIENT_USERNAME`` and
 ``GITHUBFINEGRAINEDTOKENCLIENT_PASSWORD``.
+
+Session persistence (cookies)
+-----------------------------
+
+To reduce the number of times you have to authenticate via 2FA and to speed up
+the login process by reducing the number of necessary steps, you can let the
+application persist its GitHub cookies to your filesystem:
+
+.. code:: bash
+
+   github-fine-grained-token-client \
+      -u yourusername \
+      --persist ~/.github-token-client/cookies \
+      list
+
+This will store the session cookies in your ``~/.github-token-client/cookies``
+directory on exit. The next time you run the command, it will load them from
+there, allowing it to skip the login and 2FA so long as the last execution
+wasn't too long ago (GitHub resets the 2FA status of the session after some
+time at which point you'll have to do it anyway).
 
 More commands & command details
 -------------------------------
