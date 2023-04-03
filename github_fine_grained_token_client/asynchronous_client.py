@@ -794,7 +794,7 @@ class AsyncClientSession(AbstractContextManager):
         Get all persistent information on a token (by name).
 
         Like
-        :any:`~AsyncClientSession.get_complete_persistent_token_info_by_id`
+        :py:meth:`~AsyncClientSession.get_complete_persistent_token_info_by_id`
         but by name instead of by ID. Uses the same amount of requests though.
 
         Args:
@@ -854,8 +854,8 @@ class AsyncClientSession(AbstractContextManager):
         Delete fine-grained token identified by its ID from GitHub.
 
         Contrary to what you might think, this isn't any faster than
-        :any:`~AsyncClientSession.delete_token_by_name` as both need to make
-        one extra request to fetch an authenticity token.
+        :py:meth:`~AsyncClientSession.delete_token_by_name` as both need to
+        make one extra request to fetch an authenticity token.
 
         Args:
             id: ID of the token to delete.

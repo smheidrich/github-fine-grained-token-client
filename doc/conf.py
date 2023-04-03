@@ -14,6 +14,7 @@
 # import sys
 # sys.path.insert(0, os.path.abspath('.'))
 
+from importlib import metadata
 
 # -- Project information -----------------------------------------------------
 
@@ -22,7 +23,7 @@ copyright = "2023, smheidrich <smheidrich@weltenfunktion.de>"
 author = "smheidrich <smheidrich@weltenfunktion.de>"
 
 # The full version, including alpha/beta/rc tags
-release = "2023"
+release = metadata.version(project)
 
 
 # -- General configuration ---------------------------------------------------
