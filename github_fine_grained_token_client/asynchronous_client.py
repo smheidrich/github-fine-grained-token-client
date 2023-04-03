@@ -52,7 +52,7 @@ default_logger = getLogger(__name__)
 
 
 @dataclass
-class _FineGrainedTokenMinimalInternalInfo(FineGrainedTokenBulkInfo):
+class _FineGrainedTokenBulkInternalInfo(FineGrainedTokenBulkInfo):
     """
     Internally useful information on a fine-grained token from one request.
     """
@@ -105,8 +105,7 @@ class AsyncClientSession(AbstractContextManager):
     """
     Async token client session.
 
-    Should not be instantiated directly but only through
-    :any:`async_client`.
+    Should not be instantiated directly but only through :any:`async_client`.
 
     A session's lifecycle corresponds to that of the HTTP client which is used
     to perform operations on the GitHub web interface. When multiple operations
@@ -579,17 +578,14 @@ class AsyncClientSession(AbstractContextManager):
             pass
         return did_login
 
-    async def get_tokens_minimal(
-        self,
-    ) -> Sequence[FineGrainedTokenBulkInfo]:
+    async def get_tokens_bulk(self) -> Sequence[FineGrainedTokenBulkInfo]:
         """
         Get fine-grained token list and some information via a single request.
 
         Note that the returned information does not include the expiration
         date, which would require additional HTTP requests to fetch. To
         retrieve tokens and their expiration dates, you can use
-        :py:meth:`~AsyncClientSession.get_tokens`
-        instead.
+        :py:meth:`~AsyncClientSession.get_tokens` instead.
 
         Returns:
             List of tokens.
@@ -598,12 +594,12 @@ class AsyncClientSession(AbstractContextManager):
             FineGrainedTokenBulkInfo(
                 id=info.id, name=info.name, last_used_str=info.last_used_str
             )
-            for info in await self._get_tokens_minimal_internal()
+            for info in await self._get_tokens_bulk_internal()
         ]
 
-    async def _get_tokens_minimal_internal(
+    async def _get_tokens_bulk_internal(
         self,
-    ) -> Sequence[_FineGrainedTokenMinimalInternalInfo]:
+    ) -> Sequence[_FineGrainedTokenBulkInternalInfo]:
         async with self._auth_handling_get(
             "/settings/tokens?type=beta"
         ) as response:
@@ -627,7 +623,7 @@ class AsyncClientSession(AbstractContextManager):
             deletion_authenticity_token = self._get_authenticity_token(
                 token_elem
             )
-            entry = _FineGrainedTokenMinimalInternalInfo(
+            entry = _FineGrainedTokenBulkInternalInfo(
                 id=id_,
                 name=name,
                 last_used_str=last_used_str,
@@ -672,12 +668,12 @@ class AsyncClientSession(AbstractContextManager):
         This has to make one additional HTTP request for each token to get its
         expiration date (this is also how it works on GitHub's fine-grained
         tokens page), so it will be a bit slower than
-        :py:meth:`~AsyncClientSession.get_tokens_minimal`.
+        :py:meth:`~AsyncClientSession.get_tokens_bulk`.
 
         Returns:
             List of tokens.
         """
-        summaries = await self.get_tokens_minimal()
+        summaries = await self.get_tokens_bulk()
         fetch_expiration_tasks = [
             asyncio.create_task(self.get_token_expiration(summary.id))
             for summary in summaries
@@ -744,10 +740,8 @@ class AsyncClientSession(AbstractContextManager):
         """
         Get information on a token (by name) as shown on the token's own page.
 
-        Like
-        :any:`AsyncClientSession.get_token_info_by_id`
-        but by name instead of by ID. Needs to make one more request than that
-        one.
+        Like :any:`AsyncClientSession.get_token_info_by_id` but by name instead
+        of by ID. Needs to make one more request than that one.
 
         Args:
             name: Name of the token.
@@ -756,7 +750,7 @@ class AsyncClientSession(AbstractContextManager):
             Token information.
         """
         info_by_name = {
-            info.name: info for info in await self.get_tokens_minimal()
+            info.name: info for info in await self.get_tokens_bulk()
         }
         if name not in info_by_name:
             raise KeyError(f"no token named {name!r}")
@@ -779,7 +773,7 @@ class AsyncClientSession(AbstractContextManager):
         Returns:
             Token information.
         """
-        bulk_tokens_info = await self.get_tokens_minimal()
+        bulk_tokens_info = await self.get_tokens_bulk()
         bulk_token_info = exactly_one(
             [t for t in bulk_tokens_info if t.id == token_id]
         )
@@ -811,7 +805,7 @@ class AsyncClientSession(AbstractContextManager):
         """
         bulk_info_by_name = {
             bulk_info.name: bulk_info
-            for bulk_info in await self.get_tokens_minimal()
+            for bulk_info in await self.get_tokens_bulk()
         }
         if name not in bulk_info_by_name:
             raise KeyError(f"no token named {name!r}")
@@ -852,15 +846,15 @@ class AsyncClientSession(AbstractContextManager):
         Delete fine-grained token identified by its ID from GitHub.
 
         Contrary to what you might think, this isn't any faster than
-        :any:`~AsyncClientSession.delete_token_by_name`
-        as both need to make one extra request to fetch an authenticity token.
+        :any:`~AsyncClientSession.delete_token_by_name` as both need to make
+        one extra request to fetch an authenticity token.
 
         Args:
             id: ID of the token to delete.
         """
         # get list first because each has its own deletion authenticity token
         info_by_id = {
-            info.id: info for info in await self._get_tokens_minimal_internal()
+            info.id: info for info in await self._get_tokens_bulk_internal()
         }
         if id not in info_by_id:
             raise KeyError(f"no token with ID {id!r}")
@@ -876,8 +870,7 @@ class AsyncClientSession(AbstractContextManager):
         """
         # get list first because each has its own deletion authenticity token
         info_by_name = {
-            info.name: info
-            for info in await self._get_tokens_minimal_internal()
+            info.name: info for info in await self._get_tokens_bulk_internal()
         }
         if name not in info_by_name:
             raise KeyError(f"no token named {name!r}")
@@ -885,7 +878,7 @@ class AsyncClientSession(AbstractContextManager):
         await self._delete_token_by_internal_info(info_by_name[name])
 
     async def _delete_token_by_internal_info(
-        self, info: _FineGrainedTokenMinimalInternalInfo
+        self, info: _FineGrainedTokenBulkInternalInfo
     ) -> None:
         self.logger.info(f"deleting token {info.name!r}")
         async with self._auth_handling_post(

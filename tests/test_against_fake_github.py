@@ -722,7 +722,7 @@ async def test_get_fine_grained_tokens_minimal(
         two_factor_otp_provider=correct_otp_provider,
         base_url=fake_github.base_url,
     ) as client:
-        tokens = await client.get_tokens_minimal()
+        tokens = await client.get_tokens_bulk()
         for token, reference_token in zip(
             tokens, fake_github.state.fine_grained_tokens
         ):
