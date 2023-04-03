@@ -1,9 +1,6 @@
 from importlib import metadata
 
-from .async_client import (
-    AsyncGithubFineGrainedTokenClientSession,
-    async_github_fine_grained_token_client,
-)
+from .asynchronous_client import AsyncClientSession, async_client
 from .common import (
     AllRepositories,
     FineGrainedTokenBulkInfo,
@@ -46,8 +43,8 @@ __distribution_name__ = metadata.metadata(__package__)["Name"]
 
 __all__ = [
     # client
-    "async_github_fine_grained_token_client",
-    "AsyncGithubFineGrainedTokenClientSession",
+    "async_client",
+    "AsyncClientSession",
     # credentials
     "GithubCredentials",
     # exceptions

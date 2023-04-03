@@ -8,7 +8,7 @@ import typer
 
 from . import __distribution_name__, __version__
 from .app import App
-from .async_client import PermissionValue
+from .asynchronous_client import PermissionValue
 from .common import AllRepositories, PublicRepositories, SelectRepositories
 from .permissions import (
     AccountPermission,

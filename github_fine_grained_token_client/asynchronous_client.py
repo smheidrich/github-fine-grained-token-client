@@ -61,13 +61,13 @@ class _FineGrainedTokenMinimalInternalInfo(FineGrainedTokenBulkInfo):
 
 
 @asynccontextmanager
-async def async_github_fine_grained_token_client(
+async def async_client(
     credentials: GithubCredentials,
     two_factor_otp_provider: TwoFactorOtpProvider,
     persist_to: Path | None = None,
     base_url: str = "https://github.com",
     logger: Logger = default_logger,
-) -> AsyncIterator["AsyncGithubFineGrainedTokenClientSession"]:
+) -> AsyncIterator["AsyncClientSession"]:
     """
     Context manager for launching an async client session.
 
@@ -87,7 +87,7 @@ async def async_github_fine_grained_token_client(
       A context manager for the async session.
     """
     async with aiohttp.ClientSession(raise_for_status=True) as http_session:
-        with AsyncGithubFineGrainedTokenClientSession.make_with_cookies_loaded(
+        with AsyncClientSession.make_with_cookies_loaded(
             http_session,
             credentials,
             two_factor_otp_provider,
@@ -98,15 +98,15 @@ async def async_github_fine_grained_token_client(
             yield session
 
 
-T = TypeVar("T", bound="AsyncGithubFineGrainedTokenClientSession")
+T = TypeVar("T", bound="AsyncClientSession")
 
 
-class AsyncGithubFineGrainedTokenClientSession(AbstractContextManager):
+class AsyncClientSession(AbstractContextManager):
     """
     Async token client session.
 
     Should not be instantiated directly but only through
-    :any:`async_github_fine_grained_token_client`.
+    :any:`async_client`.
 
     A session's lifecycle corresponds to that of the HTTP client which is used
     to perform operations on the GitHub web interface. When multiple operations
@@ -588,7 +588,7 @@ class AsyncGithubFineGrainedTokenClientSession(AbstractContextManager):
         Note that the returned information does not include the expiration
         date, which would require additional HTTP requests to fetch. To
         retrieve tokens and their expiration dates, you can use
-        :py:meth:`~AsyncGithubFineGrainedTokenClientSession.get_tokens`
+        :py:meth:`~AsyncClientSession.get_tokens`
         instead.
 
         Returns:
@@ -672,7 +672,7 @@ class AsyncGithubFineGrainedTokenClientSession(AbstractContextManager):
         This has to make one additional HTTP request for each token to get its
         expiration date (this is also how it works on GitHub's fine-grained
         tokens page), so it will be a bit slower than
-        :py:meth:`~AsyncGithubFineGrainedTokenClientSession.get_tokens_minimal`.
+        :py:meth:`~AsyncClientSession.get_tokens_minimal`.
 
         Returns:
             List of tokens.
@@ -745,7 +745,7 @@ class AsyncGithubFineGrainedTokenClientSession(AbstractContextManager):
         Get information on a token (by name) as shown on the token's own page.
 
         Like
-        :any:`AsyncGithubFineGrainedTokenClientSession.get_token_info_by_id`
+        :any:`AsyncClientSession.get_token_info_by_id`
         but by name instead of by ID. Needs to make one more request than that
         one.
 
@@ -800,7 +800,7 @@ class AsyncGithubFineGrainedTokenClientSession(AbstractContextManager):
         Get all persistent information on a token (by name).
 
         Like
-        :any:`~AsyncGithubFineGrainedTokenClientSession.get_complete_persistent_token_info_by_id`
+        :any:`~AsyncClientSession.get_complete_persistent_token_info_by_id`
         but by name instead of by ID. Uses the same amount of requests though.
 
         Args:
@@ -852,7 +852,7 @@ class AsyncGithubFineGrainedTokenClientSession(AbstractContextManager):
         Delete fine-grained token identified by its ID from GitHub.
 
         Contrary to what you might think, this isn't any faster than
-        :any:`~AsyncGithubFineGrainedTokenClientSession.delete_token_by_name`
+        :any:`~AsyncClientSession.delete_token_by_name`
         as both need to make one extra request to fetch an authenticity token.
 
         Args:

@@ -5,7 +5,7 @@ Basic example
 -------------
 
 Here is a basic example script showing how to use the library's async client
-(:any:`async_github_fine_grained_token_client`) to create a new token on
+(:any:`async_client`) to create a new token on
 GitHub:
 
 .. code:: python
@@ -15,12 +15,10 @@ GitHub:
     from os import environ
 
     from github_fine_grained_token_client import (
+        BlockingPromptTwoFactorOtpProvider,
         GithubCredentials,
         SelectRepositories,
-        async_github_fine_grained_token_client,
-    )
-    from github_fine_grained_token_client.two_factor_authentication import (
-        BlockingPromptTwoFactorOtpProvider,
+        async_client,
     )
 
     credentials = GithubCredentials(environ["GITHUB_USER"], environ["GITHUB_PASS"])
@@ -28,7 +26,7 @@ GitHub:
 
 
     async def main() -> str:
-        async with async_github_fine_grained_token_client(
+        async with async_client(
             credentials=credentials,
             # 2FA will be mandatory on GitHub starting at some point in 2023
             two_factor_otp_provider=BlockingPromptTwoFactorOtpProvider(),
