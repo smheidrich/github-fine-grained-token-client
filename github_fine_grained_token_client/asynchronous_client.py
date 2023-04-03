@@ -832,7 +832,15 @@ class AsyncClientSession(AbstractContextManager):
         for permission_elem in permission_elems:
             full_identifier = permission_elem["name"]
             identifier = full_identifier.split("[")[-1].strip("]")  # TODO refa
-            key = permission_from_str(identifier)
+            try:
+                key = permission_from_str(identifier)
+            except KeyError:
+                self.logger.warn(
+                    f"unknown permission {identifier!r} - skipping; "
+                    "consider upgrading your github-fine-grained-token-client "
+                    "version and filing an issue if the warning persists"
+                )
+                continue
             value = PermissionValue(permission_elem["value"])
             permissions_dict[key] = value
         if not permissions_dict:
