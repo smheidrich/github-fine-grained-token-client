@@ -22,3 +22,8 @@ variable "project_description" {
   description = "Description of project for use on GitLab & GitHub"
   type        = string
 }
+
+variable "pypi_token" {
+  description = "Token to use to publish to PyPI"
+  type        = string
+}

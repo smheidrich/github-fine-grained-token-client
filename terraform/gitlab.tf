@@ -39,3 +39,11 @@ resource "gitlab_project_milestone" "v2" {
   title   = "v2"
   description = "First release after 1.0 allowed to introduce breaking changes"
 }
+
+resource "gitlab_project_variable" "example" {
+  project   = gitlab_project.project.id
+  key       = "PYPI_TOKEN"
+  value     = var.pypi_token
+  protected = true
+  masked    = true
+}

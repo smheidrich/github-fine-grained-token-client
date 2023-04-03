@@ -14,3 +14,5 @@ export TF_VAR_github_mirror_token="mytoken2"
 # common
 export TF_VAR_project_name="github-fine-grained-token-client"
 export TF_VAR_project_description="Create and manage fine-grained GitHub tokens"
+# PyPI (used in GitLab vars)
+export TF_VAR_pypi_token="mytoken3"
