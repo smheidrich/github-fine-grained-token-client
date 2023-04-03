@@ -5,6 +5,7 @@ provider "gitlab" {
 resource "gitlab_project" "project" {
   name = var.project_name
   description = var.project_description
+  visibility_level = "public"
   merge_method = "rebase_merge"
   squash_option = "default_on"
   only_allow_merge_if_all_discussions_are_resolved = true
