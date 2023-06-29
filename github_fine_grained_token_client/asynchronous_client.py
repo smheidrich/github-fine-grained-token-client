@@ -466,8 +466,8 @@ class AsyncClientSession(AbstractContextManager):
             expires: Expiration date of the token to create. GitHub currently
                 only allows expiration dates up to 1 year in the future.
             description: Description of the token to create.
-            resource_owner: Owner of the token to create. Defaults to whatever
-                GitHub selects by default (always logged-in user I guess).
+            resource_owner: Owner of the token to create. Defaults to username
+                used to log in.
             scope: The token's desired scope.
             permissions: Permissions the token should have, as a mapping from
                 permissions to the desired value (read or write = read+write).
@@ -483,14 +483,8 @@ class AsyncClientSession(AbstractContextManager):
         )
         if permissions is None:
             permissions = {}
-        if (
-            isinstance(scope, SelectRepositories)
-            and resource_owner != self.credentials.username
-        ):
-            raise ValueError(
-                "select repositories can only be specified for user-owned "
-                "tokens"
-            )
+        if resource_owner is None:
+            resource_owner = self.credentials.username
         # /normalize and validate args
         async with self._auth_handling_get(
             "/settings/personal-access-tokens/new"
@@ -512,10 +506,7 @@ class AsyncClientSession(AbstractContextManager):
             install_target = "selected"
             # fetch repo IDs given names
             repository_ids = [
-                await self._get_repository_id(
-                    self.credentials.username,  # TODO configurable
-                    repository_name,
-                )
+                await self._get_repository_id(resource_owner, repository_name)
                 for repository_name in scope.names
             ]
         else:
@@ -530,9 +521,7 @@ class AsyncClientSession(AbstractContextManager):
                     expires_date.strftime("%Y-%m-%d")
                 ),
                 "user_programmatic_access[description]": description,
-                "target_name": self.credentials.username
-                if resource_owner is None
-                else resource_owner,
+                "target_name": resource_owner,
                 "install_target": install_target,
                 "repository_ids[]": repository_ids,
                 **{
