@@ -41,6 +41,10 @@ class TwoFactorAuthenticationError(Exception):
     pass
 
 
+class NotImplementedTwoFactorAuthenticationMethodError(NotImplementedError):
+    pass
+
+
 class TokenCreationError(Exception):
     pass
 

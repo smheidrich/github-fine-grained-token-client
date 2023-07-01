@@ -27,6 +27,7 @@ from .common import (
     FineGrainedTokenScope,
     FineGrainedTokenStandardInfo,
     LoginError,
+    NotImplementedTwoFactorAuthenticationMethodError,
     PublicRepositories,
     RepositoryNotFoundError,
     SelectRepositories,
@@ -249,6 +250,20 @@ class AsyncClientSession(AbstractContextManager):
                         raise LoginError(login_error.get_text().strip())
                     raise UnexpectedContentError(
                         "ended up back on login page but not sure why"
+                    )
+                if str(response.url).startswith(
+                    self._make_url("/sessions/two-factor/")
+                ) and str(response.url) != self._make_url(
+                    "/sessions/two-factor/app"
+                ):
+                    raise NotImplementedTwoFactorAuthenticationMethodError(
+                        f"ended up on page {response.url} which indicates "
+                        "that your default 2FA method is something other than "
+                        '"authenticator app", but currently, only 2FA via an '
+                        "authenticator app is supported and must be set as "
+                        "the default in your GitHub authentication settings; "
+                        "issue: https://gitlab.com/smheidrich/"
+                        "github-fine-grained-token-client/-/issues/14"
                     )
                 if (
                     destination_url is not None
