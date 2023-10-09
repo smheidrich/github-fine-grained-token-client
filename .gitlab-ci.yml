@@ -1,5 +1,11 @@
 image: python:3.11
 
+stages:
+  - test-and-build
+  # published docs are easy to overwrite, published pkg isn't => do last
+  - publish-docs
+  - publish-package
+
 variables:
   PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
 
@@ -15,6 +21,7 @@ before_script:
   - source venv/bin/activate
 
 test:
+  stage: test-and-build
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
           || $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
@@ -28,6 +35,7 @@ test:
     - pytest
 
 build package:
+  stage: test-and-build
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
           || $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
@@ -41,19 +49,19 @@ build package:
       - dist/*
 
 publish package:
+  stage: publish-package
   variables:
     TWINE_USERNAME: __token__
     TWINE_PASSWORD: $PYPI_TOKEN
   rules:
     - if: $CI_COMMIT_TAG =~ /^v\d+.\d+.\d+-?.*$/
-  needs:
-    - job: build package
   script:
     - pip install twine
     - twine check dist/*
     - twine upload dist/*
 
 build docs:
+  stage: test-and-build
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
           || $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
@@ -68,10 +76,9 @@ build docs:
       - built-docs
 
 pages:
+  stage: publish-docs
   rules:
     - if: $CI_COMMIT_TAG =~ /^v\d+.\d+.\d+-?.*$/
-  needs:
-    - job: build docs
   script:
     - mv built-docs public
   artifacts:
