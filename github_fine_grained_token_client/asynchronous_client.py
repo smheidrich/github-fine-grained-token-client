@@ -20,7 +20,9 @@ from github_fine_grained_token_client.two_factor_authentication import (
 
 from .abstract_http_session import AbstractHttpSession
 from .common import (
+    EXPIRED,
     AllRepositories,
+    Expired,
     FineGrainedTokenBulkInfo,
     FineGrainedTokenCompletePersistentInfo,
     FineGrainedTokenIndividualInfo,
@@ -648,7 +650,7 @@ class AsyncClientSession(AbstractContextManager):
             token_list.append(entry)
         return token_list
 
-    async def get_token_expiration(self, token_id: int) -> datetime:
+    async def get_token_expiration(self, token_id: int) -> datetime | Expired:
         """
         Retrieve the expiration date of a single fine-grained token.
 
@@ -670,6 +672,8 @@ class AsyncClientSession(AbstractContextManager):
                 expires_str = expires_str[len("expire* on ") :]
             expires = dateparser.parse(expires_str)
             if expires is None:
+                if "expired" in expires_str:
+                    return EXPIRED
                 raise UnexpectedContentError(
                     f"could not parse expiration date {expires_str}"
                 )

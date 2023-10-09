@@ -82,6 +82,17 @@ class SelectRepositories(FineGrainedTokenScope):
     "Repository names"
 
 
+# GitHub doesn't return an expiration date for tokens that are expired
+# => use this instead
+@dataclass
+class Expired:
+    def __str__(self):
+        return "EXPIRED"
+
+
+EXPIRED = Expired()
+
+
 @dataclass
 class FineGrainedTokenMinimalInfo:
     """
@@ -108,7 +119,7 @@ class FineGrainedTokenStandardInfo(FineGrainedTokenBulkInfo):
     Information on a fine-grained token as shown in the list on the website.
     """
 
-    expires: datetime
+    expires: datetime | Expired
 
 
 @dataclass
@@ -120,7 +131,7 @@ class FineGrainedTokenIndividualInfo(FineGrainedTokenMinimalInfo):
     """
 
     created: datetime
-    expires: datetime
+    expires: datetime | Expired
     permissions: Mapping[AnyPermissionKey, PermissionValue]
 
 
