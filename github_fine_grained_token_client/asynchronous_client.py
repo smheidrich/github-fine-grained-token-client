@@ -669,13 +669,13 @@ class AsyncClientSession(AbstractContextManager):
                 expires_str.lower().startswith(x)
                 for x in ("expires on ", "expired on ")
             ):
-                expires_str = expires_str[len("expire* on ") :]
+                expires_str = expires_str[len("expire* on ") :].split(".")[0]
             expires = dateparser.parse(expires_str)
             if expires is None:
                 if "expired" in expires_str:
                     return EXPIRED
                 raise UnexpectedContentError(
-                    f"could not parse expiration date {expires_str}"
+                    f"could not parse expiration date {expires_str!r}"
                 )
         return expires
 
