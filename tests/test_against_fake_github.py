@@ -541,7 +541,7 @@ async def fake_github(aiohttp_server, credentials, request) -> FakeGitHub:
         locale.setlocale(locale.LC_ALL, "C")  # TODO shitty hakc
         expiration_str = token.expires.strftime("%a, %b %d %Y")
         return aiohttp.web.Response(
-            text=f"Expires <span>on {expiration_str}</span>"
+            text=f"Expires <span>on {expiration_str}</span>. Blah blah blah"
         )
 
     @routes.get("/settings/personal-access-tokens/{token_id:[0-9]+}")
