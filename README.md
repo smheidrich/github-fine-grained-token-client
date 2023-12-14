@@ -91,3 +91,7 @@ For more detailed usage information and the API reference, refer to
 ## License
 
 MIT License, see `LICENSE` file.
+
+## Changelog
+
+- **1.0.7**: Fix expiration date parsing in presence of refresh advice.
