@@ -94,4 +94,6 @@ MIT License, see `LICENSE` file.
 
 ## Changelog
 
+- **1.0.8**: Add `py.typed` marker (allows typechecking when used as a
+  dependency).
 - **1.0.7**: Fix expiration date parsing in presence of refresh advice.
