@@ -14,9 +14,9 @@ from .asynchronous_client import (
     async_client,
 )
 from .common import FineGrainedTokenScope, LoginError
-from .credentials import (
+from .credentials import prompt_for_credentials
+from .credentials_keyring import (
     get_credentials_from_keyring_and_prompt,
-    prompt_for_credentials,
     save_credentials_to_keyring,
 )
 from .dev import PossiblePermission, PossiblePermissions
